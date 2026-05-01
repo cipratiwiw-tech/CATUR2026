@@ -7,49 +7,46 @@ IMG_PATH = "frame.png"
 TEMPLATE_CACHE = "templates_cache.npz"
 MAPPING_PATH = "template_mapping.json"
 DEBUG_DIR = "templates_debug"
+BOARD_JSON = "board.json"
 
 if not os.path.exists(DEBUG_DIR):
     os.makedirs(DEBUG_DIR)
 
 def get_cell(img, row, col):
-    x1 = col * (img.shape[1] // 8)
-    y1 = row * (img.shape[0] // 8)
-    return img[y1:y1 + (img.shape[0] // 8), x1:x1 + (img.shape[1] // 8)]
+    h, w = img.shape[:2]
+    cell_w = w // 8
+    cell_h = h // 8
+    x1 = col * cell_w
+    y1 = row * cell_h
+    return img[y1:y1 + cell_h, x1:x1 + cell_w]
 
 def preprocess(cell):
-    # 1. Resize dulu ke ukuran standar (64x64)
     gray = cv2.cvtColor(cell, cv2.COLOR_BGR2GRAY)
-    gray = cv2.resize(gray, (64, 64))
+    gray_std = cv2.resize(gray, (64, 64))
     
-    # 2. Buat rontgen/kerangka garis putih
-    edges = cv2.Canny(gray, 40, 120)
+    edges = cv2.Canny(gray_std, 40, 120)
     
-    # =======================================================
-    # LOGIKA BARU SESUAI IDE KAMU: FOKUS RADIUS TENGAH!
-    # Kita buang 12 piksel dari atas, bawah, kiri, dan kanan.
-    # Gambar sekarang menyusut jadi 40x40 piksel (HANYA AREA TENGAH).
-    # =======================================================
-    gray_center = gray[12:52, 12:52]
-    edges_center = edges[12:52, 12:52]
+    # PERBAIKAN: Dilation diturunkan ke 2x2 agar garis tebal tapi tidak menggumpal
+    kernel = np.ones((2, 2), np.uint8)
+    edges_thick = cv2.dilate(edges, kernel, iterations=1)
     
-    return gray_center, edges_center 
+    # PERBAIKAN: Hapus pojokan cukup 14x14 agar badan bidak tidak terpotong
+    edges_thick[0:14, 0:14] = 0   
+    edges_thick[-14:, -14:] = 0   
+    
+    return gray_std, edges_thick 
 
-def is_empty(gray_center, edges_center):
-    # Karena area gambarnya mengecil, threshold kita turunkan drastis
-    if cv2.countNonZero(edges_center) < 15:
-        return True
-        
-    if np.std(gray_center) < 15: 
-        return True
-        
-    return False
+def is_empty(edges_thick):
+    # Jika garis siluetnya sangat sedikit, fix ini kotak kosong
+    return cv2.countNonZero(edges_thick) < 20
 
-def get_piece_color(gray_center):
-    # Karena ukuran gambar sekarang 40x40, kita hitung langsung dari keseluruhan area tengah ini
-    dark_pixels = np.sum(gray_center < 80)
-    light_pixels = np.sum(gray_center > 175)
+def get_piece_color(gray_std):
+    # PERBAIKAN: Ambil rata-rata kecerahan di pusat badan bidak
+    # Jauh lebih akurat daripada menghitung jumlah piksel
+    center_area = gray_std[24:40, 24:40]
+    avg_brightness = np.mean(center_area)
     
-    if light_pixels > dark_pixels:
+    if avg_brightness > 120:
         return "WHITE"
     else:
         return "BLACK"
@@ -70,12 +67,11 @@ def build_templates(img):
             cell = get_cell(img, r, c)
             gray, edges = preprocess(cell)
             
-            shape_label = label.upper() 
-            
-            if shape_label not in templates_dict:
-                templates_dict[shape_label] = edges
-                # Simpan agar kamu bisa lihat ukuran barunya yang fokus di tengah
-                cv2.imwrite(os.path.join(DEBUG_DIR, f"{shape_label}.png"), edges)
+            # PERBAIKAN: Jangan di-upper()! Biarkan 'p' dan 'P' tersimpan masing-masing
+            # agar mesin punya banyak referensi bentuk.
+            if label not in templates_dict:
+                templates_dict[label] = edges
+                cv2.imwrite(os.path.join(DEBUG_DIR, f"{label}.png"), edges)
 
     np.savez(TEMPLATE_CACHE, **templates_dict)
     return templates_dict
@@ -90,13 +86,13 @@ def match(cell_edges, templates_dict):
     best_score = -1
     best_shape = "."
 
-    for shape_label, t_img in templates_dict.items():
+    for label, t_img in templates_dict.items():
         res = cv2.matchTemplate(cell_edges, t_img, cv2.TM_CCOEFF_NORMED)
         score = res[0][0]
 
         if score > best_score:
             best_score = score
-            best_shape = shape_label
+            best_shape = label
 
     return best_shape, best_score
 
@@ -118,28 +114,28 @@ for r in range(8):
         cell = get_cell(img, r, c)
         gray, edges = preprocess(cell)
 
-        if is_empty(gray, edges):
+        if is_empty(edges):
             board.append(".")
             continue
 
         shape, score = match(edges, templates)
 
-        # =======================================================
-        # PERMINTAAN USER: "Pokoknya ada kemiripan sedikit aja udah deteksi"
-        # Threshold kita banting jadi 0.20 (sangat rendah/toleran).
-        # =======================================================
-        if score < 0.20: 
+        # Toleransi dikembalikan ke 0.25
+        if score < 0.25: 
             board.append(".")
         else:
-            color = get_piece_color(gray)
-            if color == "WHITE":
-                final_label = shape.upper()
+            # PERBAIKAN: Kalau kebetulan yang mirip adalah template Empty (E), 
+            # paksa jadi titik (.) agar C++ tidak nulis huruf E di FEN.
+            if shape.upper() == "E":
+                board.append(".")
             else:
-                final_label = shape.lower()
-                
-            board.append(final_label)
+                color = get_piece_color(gray)
+                if color == "WHITE":
+                    board.append(shape.upper())
+                else:
+                    board.append(shape.lower())
 
-with open("board.json", "w") as f:
+with open(BOARD_JSON, "w") as f:
     json.dump(board, f)
 
 print("[INFO] Detection done")

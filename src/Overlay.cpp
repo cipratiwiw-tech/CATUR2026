@@ -135,8 +135,9 @@ LRESULT CALLBACK Overlay::WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
             
             RECT textRect = { 5, 2, r.right - 5, padding };
             HFONT hFont = CreateFont(16, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, ANSI_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH | FF_SWISS, "Arial");
-            SelectObject(hdc, hFont);
+            HFONT hOldFont = (HFONT)SelectObject(hdc, hFont);
             DrawTextA(hdc, infoText.c_str(), -1, &textRect, DT_LEFT | DT_NOPREFIX | DT_SINGLELINE | DT_VCENTER);
+            SelectObject(hdc, hOldFont);
             DeleteObject(hFont);
 
             // 2. Gambar Grid Hijau (Hanya digambar jika jendela tidak terlalu kecil)
@@ -148,7 +149,13 @@ LRESULT CALLBACK Overlay::WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
                 SelectObject(hdc, hPen);
                 SelectObject(hdc, GetStockObject(HOLLOW_BRUSH)); 
                 SetBkMode(hdc, TRANSPARENT);
-                SetTextColor(hdc, RGB(255, 255, 255));
+
+                // Gunakan NONANTIALIASED_QUALITY agar tidak ada efek blur putih dari colorkey background transparan
+                int fontSize = (int)(cellH * 0.6); // Ukuran font proporsional 60% dari tinggi kotak
+                HFONT hPieceFont = CreateFont(fontSize, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, ANSI_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, NONANTIALIASED_QUALITY, DEFAULT_PITCH | FF_SWISS, "Arial");
+                HFONT hOldFont2 = (HFONT)SelectObject(hdc, hPieceFont);
+                
+                SetTextColor(hdc, RGB(255, 0, 0)); // Ubah warna simbol bidak jadi merah
 
                 for(int i = 0; i < 8; i++) {
                     for(int j = 0; j < 8; j++) {
@@ -157,14 +164,24 @@ LRESULT CALLBACK Overlay::WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
                         int y = padding + (int)(cellH * i);
                         int nextX = padding + (int)(cellW * (j + 1));
                         int nextY = padding + (int)(cellH * (i + 1));
+                        
+                        // Ubah kembali Ellipse menjadi Rectangle
                         Rectangle(hdc, x, y, nextX, nextY);
                         
                         std::string p = g_overlay->boardState[i * 8 + j];
                         if (p != ".") {
-                            TextOutA(hdc, x + 15, y + 10, p.c_str(), (int)p.length());
+                            // Hitung dimensi area teks agar dapat dipusatkan di tengah sel grid
+                            SIZE textSize;
+                            GetTextExtentPoint32A(hdc, p.c_str(), (int)p.length(), &textSize);
+                            int textX = x + (int)((cellW - textSize.cx) / 2);
+                            int textY = y + (int)((cellH - textSize.cy) / 2);
+                            
+                            TextOutA(hdc, textX, textY, p.c_str(), (int)p.length());
                         }
                     }
                 }
+                SelectObject(hdc, hOldFont2);
+                DeleteObject(hPieceFont);
                 DeleteObject(hPen);
 
                 // --- GAMBAR EVALUATION BAR ---

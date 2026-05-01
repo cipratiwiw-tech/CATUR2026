@@ -7,6 +7,7 @@
 #include <map>
 #include <filesystem>
 #include <cmath>
+#include <algorithm>
 #include "Overlay.h"
 #include "ScreenCapture.h"
 #include "Vision.h"
@@ -126,7 +127,9 @@ void onMouse(int event, int x, int y, int flags, void* userdata) {
                         data->cellLabels[i] = data->pieceKeys[idx]; // TAMBAHAN: Rekam label bidak untuk kotak ini
                         
 
-                        // Efek visual sementara (kotak merah) saat gambar di-crop
+                        // Efek visual sementara (lingkaran merah)
+                        cv::Point center(sq.area.x + sq.area.width/2, sq.area.y + sq.area.height/2);
+                        int radius = std::min(sq.area.width, sq.area.height) / 2;
                         cv::rectangle(data->dialogImg, sq.area, cv::Scalar(0, 0, 255, 255), 2);
                         cv::imshow("Screenshot Area Grid", data->dialogImg);
                         cv::waitKey(50); // Tahan sebentar
@@ -281,11 +284,12 @@ int main() {
                         cv::Mat leftROI = cbData.dialogImg(cv::Rect(0, 0, width, height));
                         boardImage.copyTo(leftROI);
                         
-                        // 3. Highlight sel yang sudah dipilih (Garis hijau OpenCV dihapus agar tidak menumpuk dengan asli)
+                        // 3. Highlight sel yang sudah dipilih (Lingkaran Oranye)
                         for (int i = 0; i < grid.size(); i++) {
                             const auto& sq = grid[i];
                             if (cbData.selectedCells[i]) {
-                                // Jika kotak SUDAH di-select: Bingkai tebal warna Oranye
+                                cv::Point center(sq.area.x + sq.area.width/2, sq.area.y + sq.area.height/2);
+                                int radius = std::min(sq.area.width, sq.area.height) / 2;
                                 cv::rectangle(cbData.dialogImg, sq.area, cv::Scalar(0, 165, 255, 255), 3);
                             }
                         }

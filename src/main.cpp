@@ -6,17 +6,62 @@
 #include <vector>
 #include <map>
 #include <filesystem>
+#include <cmath>
 #include "Overlay.h"
 #include "ScreenCapture.h"
 #include "Vision.h"
-
+#include <deque>
+#include <map>
 namespace fs = std::filesystem;
 
-// Struktur penyimpan gambar referensi bidak
-struct PieceTemplate {
-    std::string piece;
-    cv::Mat img;
+// --- TASK 1: Add Temporal Stability Struct ---
+struct CellHistory {
+    std::deque<std::string> history;
 };
+std::vector<CellHistory> cellHistories(64);
+
+void updateHistoryAndVote(int index, const std::string& newResult) {
+    auto& hist = cellHistories[index].history;
+    hist.push_back(newResult);
+    if (hist.size() > 5) hist.pop_front(); // Batasi max 5 frame terakhir
+}
+
+std::string getStableResult(int index) {
+    std::map<std::string, int> votes;
+    for (const auto& res : cellHistories[index].history) votes[res]++;
+    
+    std::string bestRes = ".";
+    int maxVotes = 0;
+    for (const auto& pair : votes) {
+        if (pair.second > maxVotes) {
+            maxVotes = pair.second;
+            bestRes = pair.first;
+        }
+    }
+    return bestRes;
+}
+
+// --- TASK 2: Change Detection Helper ---
+bool isSquareChanged(const cv::Mat& prev, const cv::Mat& curr) {
+    if (prev.empty() || curr.empty() || prev.size() != curr.size()) return true;
+    cv::Mat diff, grayPrev, grayCurr;
+    
+    if (prev.channels() == 4) cv::cvtColor(prev, grayPrev, cv::COLOR_BGRA2GRAY);
+    else if (prev.channels() == 3) cv::cvtColor(prev, grayPrev, cv::COLOR_BGR2GRAY);
+    else grayPrev = prev;
+    
+    if (curr.channels() == 4) cv::cvtColor(curr, grayCurr, cv::COLOR_BGRA2GRAY);
+    else if (curr.channels() == 3) cv::cvtColor(curr, grayCurr, cv::COLOR_BGR2GRAY);
+    else grayCurr = curr;
+
+    cv::absdiff(grayPrev, grayCurr, diff);
+    cv::Scalar meanDiff = cv::mean(diff);
+    
+    // [FIX] Naikkan toleransi dari 3.0 ke 8.0 agar noise layar tidak dianggap pergerakan
+    return meanDiff[0] > 8.0; 
+}
+
+
 
 // Struktur dan fungsi Callback untuk Mouse di Jendela Popup
 struct MouseCallbackData {
@@ -80,7 +125,7 @@ void onMouse(int event, int x, int y, int flags, void* userdata) {
                 char p = layout[i / 8][i % 8]; // Dapatkan karakter susunan awal sesuai baris & kolom
                 
                 int idx = -1;
-                for (size_t j = 0; j < data->pieceKeys.size(); j++) { if (data->pieceKeys[j][0] == p) { idx = j; break; } }
+                for (size_t j = 0; j < data->pieceKeys.size(); j++) { if (data->pieceKeys[j][0] == p) { idx = static_cast<int>(j); break; } }
                 
                 if (idx != -1 && data->selectionCounts[idx] < data->maxLimits[idx]) {
                     data->selectionCounts[idx]++;
@@ -160,6 +205,11 @@ int main() {
 
     std::vector<PieceTemplate> templates;
     bool templatesLoaded = false;
+    
+    // TAMBAHKAN INISIALISASI INI SEBELUM LOOP
+    std::vector<cv::Mat> prevSquares(64);
+    std::vector<double> prevScores(64, 0.0);
+    bool enableDebugVisuals = true; 
     
     while (true) {
         // Jika menu belum diklik, aplikasi cukup "tidur" dan cek kembali
@@ -353,56 +403,73 @@ int main() {
 
             // 4. Analisa masing-masing kotak (Kode pencocokan template bidak)
             if (frame.isAnalyzing) {
-                // Muat semua template dari folder HANYA jika belum dimuat atau baru saja diupdate
+                // TASK 10: Cache Templates
                 if (!templatesLoaded) {
                     templates.clear();
                     if (fs::exists("templates")) {
                         for (const auto& entry : fs::directory_iterator("templates")) {
                             if (entry.path().extension() == ".png") {
-                                std::string filename = entry.path().stem().string(); // Contoh: "P_1"
-                                std::string piece = filename.substr(0, 1);           // Ambil huruf pertamanya: "P"
+                                std::string filename = entry.path().stem().string();
+                                std::string piece = filename.substr(0, 1);
                                 cv::Mat img = cv::imread(entry.path().string(), cv::IMREAD_COLOR);
-                                if (!img.empty()) templates.push_back({piece, img});
+                                if (!img.empty()) {
+                                    cv::Mat gray, edges;
+                                    cv::cvtColor(img, gray, cv::COLOR_BGR2GRAY);
+                                    cv::Canny(gray, edges, 50, 150);
+                                    templates.push_back({piece, img, gray, edges}); 
+                                }
                             }
                         }
                     }
                     templatesLoaded = true;
                 }
 
-                // Jalankan deteksi jika kita punya setidaknya 1 template untuk dibandingkan
                 if (!templates.empty()) {
+                    cv::Mat debugImg;
+                    if (enableDebugVisuals) debugImg = boardImage.clone(); 
+
                     for (int i = 0; i < 64; i++) {
                         cv::Mat squareImg = boardImage(grid[i].area);
                         
-                        // Konversi dari BGRA ke BGR untuk mencocokkan dengan format template (3 Channel)
-                        cv::Mat squareImgBGR;
-                        if (squareImg.channels() == 4) {
-                            cv::cvtColor(squareImg, squareImgBGR, cv::COLOR_BGRA2BGR);
-                        } else {
-                            squareImgBGR = squareImg;
+                        // TASK 2 & 8: Hitung perbedaan, skip jika tidak ada pergerakan
+                        bool changed = isSquareChanged(prevSquares[i], squareImg);
+                        
+                        std::string detectedPiece = frame.boardState[i]; // Reuse previous
+                        double currentScore = prevScores[i];
+
+                        if (changed) {
+                            // TASK 7: Panggil modul Vision
+                            detectedPiece = vision.detectPiece(squareImg, templates, currentScore);
+                            
+                            // TASK 6: Score smoothing (Anti Flicker)
+                            currentScore = (0.6 * currentScore) + (0.4 * prevScores[i]);
+                            
+                            // Update cache
+                            prevSquares[i] = squareImg.clone();
+                            prevScores[i] = currentScore;
                         }
 
-                        std::string detectedPiece = ".";
-                        double bestScore = 0.60; // Skor minimal (60%) agar tidak mendeteksi sembarangan
+                        // TASK 1: Majority Vote / Temporal Stability
+                        updateHistoryAndVote(i, detectedPiece);
+                        frame.boardState[i] = getStableResult(i);
 
-                        for (const auto& t : templates) {
-                            cv::Mat resizedSquare;
-                            // Samakan ukuran jaga-jaga jika kamu tidak sengaja me-resize jendela
-                            if (squareImgBGR.size() != t.img.size()) cv::resize(squareImgBGR, resizedSquare, t.img.size());
-                            else resizedSquare = squareImgBGR;
-
-                            cv::Mat result;
-                            cv::matchTemplate(resizedSquare, t.img, result, cv::TM_CCOEFF_NORMED);
-                            double minVal, maxVal;
-                            cv::minMaxLoc(result, &minVal, &maxVal);
-
-                            if (maxVal > bestScore) {
-                                bestScore = maxVal;
-                                detectedPiece = t.piece;
+                        // TASK 9: Gambar Visualisasi Debug
+                        if (enableDebugVisuals) {
+                            if (changed) {
+                                cv::rectangle(debugImg, grid[i].area, cv::Scalar(0, 255, 255), 2); // Yellow Box
                             }
+                            
+                            std::string label = frame.boardState[i] + " (" + std::to_string(currentScore).substr(0,4) + ")";
+                            
+                            // [FIX] Pisahkan deklarasi Point agar MSVC compiler tidak error
+                            cv::Point textPos(grid[i].area.x + 5, grid[i].area.y + 20);
+                            cv::putText(debugImg, label, textPos, cv::FONT_HERSHEY_SIMPLEX, 0.45, cv::Scalar(0, 255, 0), 2);
                         }
-                        if (detectedPiece == "E") detectedPiece = "."; // Jadikan kotak kosong jika "Empty" menang
-                        frame.boardState[i] = detectedPiece; // Update papan state
+                    }
+
+                    if (enableDebugVisuals) {
+                        cv::imshow("Debug Visualization", debugImg);
+                        cv::waitKey(1);
                     }
                 }
             }
@@ -431,9 +498,9 @@ int main() {
             
             // 5. Update FEN ke Overlay UI agar tampil di jendela aplikasi
             frame.currentFEN = fen + " w - - 0 1";
-            InvalidateRect(frame.hwnd, NULL, TRUE); // Refresh tampilan overlay
+            InvalidateRect(frame.hwnd, NULL, TRUE); 
             
-            Sleep(1000); // Jeda 1 detik agar screen capture tidak memberatkan performa laptop
+            Sleep(1000); // Jeda 1 detik agar tidak memberatkan performa
         }
     }
     return 0;

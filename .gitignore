@@ -1,41 +1,55 @@
-# Build folder
-/build/
-/bin/
-/out/
+# =========================
+# BUILD FOLDER
+# =========================
+build/
+Debug/
+Release/
+out/
 
-# Object files
-*.o
-*.obj
-
-# Executables
-*.exe
-*.out
-*.app
-
-# Libraries
-*.so
-*.dll
-*.dylib
-*.a
-*.lib
-
-# Debug files
-*.log
-*.dSYM/
-
-# CMake
+# =========================
+# CMAKE
+# =========================
 CMakeFiles/
 CMakeCache.txt
 cmake_install.cmake
 Makefile
 
-# Visual Studio
-.vs/
-*.vcxproj.user
+# =========================
+# EXECUTABLE & BINARY
+# =========================
+*.exe
+*.dll
+*.pdb
+*.lib
+*.so
 
-# VS Code
-.vscode/
+# =========================
+# IMGUI / CONFIG
+# =========================
+imgui.ini
 
+# =========================
+# ENGINE / TOOL
+# =========================
+stockfish.exe
+
+# =========================
+# PYTHON (kalau nanti dipakai)
+# =========================
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+venv/
+.env/
+
+# =========================
 # OS
+# =========================
 .DS_Store
 Thumbs.db
+
+# =========================
+# OPTIONAL: templates (kalau mau tetap disimpan, HAPUS ini)
+# =========================
+# templates/

@@ -57,12 +57,14 @@ LRESULT CALLBACK Overlay::WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
             
             // Tentukan jarak pinggir yang sama dengan yang digambar
             int padding = 20; 
-            int gridW = r.right - (2 * padding);
+            int barWidth = 20;
+            int barGap = 15;
+            int gridW = r.right - (2 * padding) - barWidth - barGap;
             int gridH = r.bottom - (2 * padding);
 
             // Cek apakah klik berada tepat di dalam area grid (bukan di area kosong pinggiran)
-            if (x >= padding && x <= r.right - padding && 
-                y >= padding && y <= r.bottom - padding) {
+            if (x >= padding && x <= padding + gridW && 
+                y >= padding && y <= padding + gridH) {
                 
                 int cellW = gridW / 8;
                 int cellH = gridH / 8;
@@ -114,7 +116,9 @@ LRESULT CALLBACK Overlay::WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
             // --- DEKLARASI PADDING ---
             int padding = 20; // 20 piksel jarak dari batas aplikasi ke grid catur
-            int gridW = r.right - (2 * padding);
+            int barWidth = 20;
+            int barGap = 15;
+            int gridW = r.right - (2 * padding) - barWidth - barGap;
             int gridH = r.bottom - (2 * padding);
 
             // --- GAMBAR INSTRUKSI & FEN DI JENDELA ---
@@ -155,6 +159,35 @@ LRESULT CALLBACK Overlay::WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
                     }
                 }
                 DeleteObject(hPen);
+
+                // --- GAMBAR EVALUATION BAR ---
+                int barX = padding + gridW + barGap;
+                int barY = padding;
+                
+                // Kalkulasi proporsi kemenangan berdasarkan variabel currentEval
+                float eval = g_overlay->currentEval;
+                if (eval > 10.0f) eval = 10.0f;
+                if (eval < -10.0f) eval = -10.0f;
+                float normalized = (eval + 10.0f) / 20.0f; 
+                
+                int whiteHeight = (int)(gridH * normalized);
+                int blackHeight = gridH - whiteHeight;
+                
+                RECT blackRect = { barX, barY, barX + barWidth, barY + blackHeight };
+                HBRUSH blackBrush = CreateSolidBrush(RGB(40, 40, 40)); 
+                FillRect(hdc, &blackRect, blackBrush);
+                DeleteObject(blackBrush);
+                
+                RECT whiteRect = { barX, barY + blackHeight, barX + barWidth, barY + gridH };
+                HBRUSH whiteBrush = CreateSolidBrush(RGB(240, 240, 240)); 
+                FillRect(hdc, &whiteRect, whiteBrush);
+                DeleteObject(whiteBrush);
+                
+                HPEN barPen = CreatePen(PS_SOLID, 1, RGB(0, 0, 0));
+                SelectObject(hdc, barPen);
+                SelectObject(hdc, GetStockObject(HOLLOW_BRUSH));
+                Rectangle(hdc, barX, barY, barX + barWidth, barY + gridH);
+                DeleteObject(barPen);
             }
 
             // 3. Bingkai Resizer (Tidak Terlihat) di ujung jendela

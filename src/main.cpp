@@ -41,8 +41,10 @@ int main() {
         GetClientRect(frame.hwnd, &clientRect);
         
         int padding = 20; // Sesuai dengan ukuran padding yang digambar di Overlay.cpp
+        int barWidth = 20;
+        int barGap = 15;
         POINT topLeft = { clientRect.left + padding, clientRect.top + padding };
-        POINT bottomRight = { clientRect.right - padding, clientRect.bottom - padding };
+        POINT bottomRight = { clientRect.right - padding - barWidth - barGap, clientRect.bottom - padding };
         
         ClientToScreen(frame.hwnd, &topLeft);
         ClientToScreen(frame.hwnd, &bottomRight);

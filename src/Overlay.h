@@ -20,6 +20,7 @@ public:
     std::atomic<bool> isReady{ false };
     std::atomic<bool> isAnalyzing{ false }; // Penanda tombol diklik
     std::string currentFEN = ""; // Menyimpan teks FEN untuk digambar
+    float currentEval = 0.0f; // Score evaluasi engine untuk Eval Bar (-10.0 sampai 10.0)
     
     std::string boardState[64]; // Menyimpan karakter FEN[cite: 11]
     int lastClickedIndex = -1;

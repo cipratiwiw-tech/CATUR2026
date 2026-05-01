@@ -66,13 +66,13 @@ LRESULT CALLBACK Overlay::WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
             if (x >= padding && x <= padding + gridW && 
                 y >= padding && y <= padding + gridH) {
                 
-                int cellW = gridW / 8;
-                int cellH = gridH / 8;
+                double cellW = (double)gridW / 8.0;
+                double cellH = (double)gridH / 8.0;
 
                 if (cellW > 0 && cellH > 0) {
                     // Kurangi koordinat x dan y dengan padding agar kalkulasi index tepat
-                    int col = (x - padding) / cellW;
-                    int row = (y - padding) / cellH;
+                    int col = (int)((x - padding) / cellW);
+                    int row = (int)((y - padding) / cellH);
                     
                     // Pastikan batas array aman
                     if (col > 7) col = 7;
@@ -141,8 +141,8 @@ LRESULT CALLBACK Overlay::WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
             // 2. Gambar Grid Hijau (Hanya digambar jika jendela tidak terlalu kecil)
             if (gridW > 0 && gridH > 0) {
-                int cellW = gridW / 8;
-                int cellH = gridH / 8;
+                double cellW = (double)gridW / 8.0;
+                double cellH = (double)gridH / 8.0;
 
                 HPEN hPen = CreatePen(PS_SOLID, 1, RGB(0, 255, 0));
                 SelectObject(hdc, hPen);
@@ -153,9 +153,11 @@ LRESULT CALLBACK Overlay::WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
                 for(int i = 0; i < 8; i++) {
                     for(int j = 0; j < 8; j++) {
                         // Kalkulasi posisi x dan y ditambah padding
-                        int x = padding + (cellW * j);
-                        int y = padding + (cellH * i);
-                        Rectangle(hdc, x, y, x + cellW, y + cellH);
+                        int x = padding + (int)(cellW * j);
+                        int y = padding + (int)(cellH * i);
+                        int nextX = padding + (int)(cellW * (j + 1));
+                        int nextY = padding + (int)(cellH * (i + 1));
+                        Rectangle(hdc, x, y, nextX, nextY);
                         
                         std::string p = g_overlay->boardState[i * 8 + j];
                         if (p != ".") {

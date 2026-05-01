@@ -18,6 +18,7 @@ struct MouseCallbackData {
     std::vector<std::string> pieceKeys;
     std::vector<cv::Rect> buttonRects;
     std::vector<ChessSquare> grid;
+    std::vector<bool> selectedCells; // Menyimpan status apakah cell sudah di-klik
     int activePieceIndex = -1;
     bool needsRedraw = false;
 };
@@ -38,13 +39,17 @@ void onMouse(int event, int x, int y, int flags, void* userdata) {
         // Cek klik di area grid papan catur (panel kiri)
         if (x >= 0 && x < data->width && y >= 0 && y < data->height) {
             if (data->activePieceIndex != -1) {
-                for (const auto& sq : data->grid) {
+                for (int i = 0; i < data->grid.size(); i++) {
+                    const auto& sq = data->grid[i];
                     if (sq.area.contains(cv::Point(x, y))) {
                         cv::Mat cellImg = data->boardImage(sq.area);
                         CreateDirectoryA("templates", NULL); // Buat folder templates jika belum ada
                         std::string filename = "templates/" + data->pieceKeys[data->activePieceIndex] + ".png";
                         cv::imwrite(filename, cellImg); // Ekspor gambar!
                         
+                        // Tandai bahwa cell ini sudah pernah di-select
+                        data->selectedCells[i] = true;
+
                         // Efek visual sementara (kotak merah) saat gambar di-crop
                         cv::rectangle(data->dialogImg, sq.area, cv::Scalar(0, 0, 255, 255), 2);
                         cv::imshow("Screenshot Area Grid", data->dialogImg);
@@ -108,7 +113,7 @@ int main() {
             cv::Mat boardImage = capture.captureRegion(topLeft.x, topLeft.y, width, height);
             
             // 3. Bagi gambar ke dalam grid 8x8 kotak (Dipindah agar bisa digunakan di Callback)
-            std::vector<ChessSquare> grid = vision.createGrid(cv::Point(0, 0), width);
+            std::vector<ChessSquare> grid = vision.createGrid(cv::Point(0, 0), width, height);
 
             // Tampilkan POPUP SCREENSHOT jika menu Pilih Bidak diklik
             if (frame.showPieceSelector) {
@@ -123,6 +128,7 @@ int main() {
                 cbData.height = height;
                 cbData.boardImage = boardImage;
                 cbData.grid = grid;
+                cbData.selectedCells.assign(64, false); // Set awal ke-64 kotak belum di-select
                 cbData.dialogImg = cv::Mat(dialogHeight, width + panelWidth, CV_8UC4, cv::Scalar(45, 45, 45, 255));
                  // Gambar list tombol bidak di sisi kanan
                 cbData.pieces = {
@@ -173,9 +179,13 @@ int main() {
                         cv::Mat leftROI = cbData.dialogImg(cv::Rect(0, 0, width, height));
                         boardImage.copyTo(leftROI);
                         
-                        // 3. Gambar overlay garis hijau pada Papan agar kamu mudah meng-klik di dalam kotak bidak!
-                        for (const auto& sq : grid) {
-                            cv::rectangle(cbData.dialogImg, sq.area, cv::Scalar(0, 255, 0, 100), 1);
+                        // 3. Highlight sel yang sudah dipilih (Garis hijau OpenCV dihapus agar tidak menumpuk dengan asli)
+                        for (int i = 0; i < grid.size(); i++) {
+                            const auto& sq = grid[i];
+                            if (cbData.selectedCells[i]) {
+                                // Jika kotak SUDAH di-select: Bingkai tebal warna Oranye
+                                cv::rectangle(cbData.dialogImg, sq.area, cv::Scalar(0, 165, 255, 255), 3);
+                            }
                         }
 
                         // 4. Gambar ulang status masing-masing tombol

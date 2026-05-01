@@ -13,5 +13,5 @@ public:
     std::vector<cv::Point> findTemplate(cv::Mat mainImage, cv::Mat templateImage, double threshold = 0.8, cv::Mat mask = cv::Mat());
     
     // Fungsi baru untuk membagi papan jadi 64 kotak
-    std::vector<ChessSquare> createGrid(cv::Point topLeft, int boardSize);
+    std::vector<ChessSquare> createGrid(cv::Point topLeft, int width, int height);
 };

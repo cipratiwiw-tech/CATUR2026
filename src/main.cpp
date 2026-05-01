@@ -99,6 +99,21 @@ void onMouse(int event, int x, int y, int flags, void* userdata) {
         for (int i = 0; i < data->buttonRects.size(); i++) {
             if (data->buttonRects[i].contains(cv::Point(x, y))) {
                 data->activePieceIndex = i;
+                
+                // KHUSUS: Jika tombol "Empty (E)" (index 12) diklik,
+                // otomatis isi semua cell yang belum terpilih menjadi Empty.
+                if (i == 12) {
+                    for (int c = 0; c < 64; c++) {
+                        if (!data->selectedCells[c]) {
+                            data->selectedCells[c] = true;
+                            data->cellLabels[c] = "E";
+                            if (data->selectionCounts[12] < data->maxLimits[12]) {
+                                data->selectionCounts[12]++;
+                            }
+                        }
+                    }
+                }
+                
                 data->needsRedraw = true; // Picu penggambaran ulang UI
                 return;
             }
@@ -150,6 +165,31 @@ void onMouse(int event, int x, int y, int flags, void* userdata) {
                         data->needsRedraw = true; // Gambar ulang agar kotak merah hilang
                         return;
                     }
+                }
+            }
+        }
+    } else if (event == cv::EVENT_RBUTTONDOWN) {
+        MouseCallbackData* data = static_cast<MouseCallbackData*>(userdata);
+        
+        // Cek klik kanan di area grid papan catur (panel kiri)
+        if (x >= 0 && x < data->width && y >= 0 && y < data->height) {
+            for (int i = 0; i < data->grid.size(); i++) {
+                const auto& sq = data->grid[i];
+                if (sq.area.contains(cv::Point(x, y))) {
+                    // Jika kotak tersebut sudah ada isinya, batalkan pilihan (unselect)
+                    if (data->selectedCells[i]) {
+                        std::string oldLabel = data->cellLabels[i];
+                        int oldIdx = -1;
+                        for (size_t k = 0; k < data->pieceKeys.size(); k++) {
+                            if (data->pieceKeys[k] == oldLabel) { oldIdx = (int)k; break; }
+                        }
+                        if (oldIdx != -1) data->selectionCounts[oldIdx]--; // Kurangi hitungan bidak
+                        
+                        data->selectedCells[i] = false;
+                        data->cellLabels[i] = "E";
+                        data->needsRedraw = true; // Picu render ulang
+                    }
+                    return;
                 }
             }
         }
@@ -419,20 +459,23 @@ int main() {
                 // Tutup popup secara aman, abaikan jika jendela sudah terlanjur hancur
                 try { cv::destroyWindow("Screenshot Area Grid"); } catch (...) {}
 
-                // TAMBAHAN: Simpan juga gambar papan terbaru untuk diproses ekstraksi oleh Python
-                cv::imwrite("frame.png", boardImage);
+                // Hanya simpan konfigurasi dan capture ke file JIKA user menekan tombol Save (bukan close paksa/ESC)
+                if (cbData.closeDialog) {
+                    // TAMBAHAN: Simpan juga gambar papan terbaru untuk diproses ekstraksi oleh Python
+                    cv::imwrite("frame.png", boardImage);
 
-                // TAMBAHAN: Tulis pemetaan template ke JSON untuk dibaca Python
-                std::ofstream mapFile("template_mapping.json");
-                if (mapFile.is_open()) {
-                    mapFile << "[\n";
-                    for (int i = 0; i < 64; i++) {
-                        mapFile << "  \"" << cbData.cellLabels[i] << "\"";
-                        if (i < 63) mapFile << ",\n";
-                        else mapFile << "\n";
+                    // TAMBAHAN: Tulis pemetaan template ke JSON untuk dibaca Python
+                    std::ofstream mapFile("template_mapping.json");
+                    if (mapFile.is_open()) {
+                        mapFile << "[\n";
+                        for (int i = 0; i < 64; i++) {
+                            mapFile << "  \"" << cbData.cellLabels[i] << "\"";
+                            if (i < 63) mapFile << ",\n";
+                            else mapFile << "\n";
+                        }
+                        mapFile << "]\n";
+                        mapFile.close();
                     }
-                    mapFile << "]\n";
-                    mapFile.close();
                 }
                 
                 frame.showPieceSelector = false; // Reset status penanda

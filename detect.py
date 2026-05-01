@@ -4,7 +4,7 @@ import numpy as np
 import os
 
 IMG_PATH = "frame.png"
-TEMPLATE_CACHE = "templates_cache.npz"
+TEMPLATE_CACHE = "templates_cache_v3.npz" # Ubah nama agar memaksa pembuatan ulang cache template baru
 MAPPING_PATH = "template_mapping.json"
 DEBUG_DIR = "templates_debug"
 BOARD_JSON = "board.json"
@@ -24,30 +24,37 @@ def preprocess(cell):
     # 1. Ubah ke Grayscale
     gray = cv2.cvtColor(cell, cv2.COLOR_BGR2GRAY)
     
-    # 2. Crop untuk membuang garis grid yang mungkin bocor
+    # 2. Pengaman jika frame di-resize terlalu kecil
     h, w = gray.shape
-
     if w <= 10 or h <= 10:
-        return np.zeros((64, 64), dtype=np.uint8) # Pengaman jika frame di-resize terlalu kecil
+        return np.zeros((64, 64), dtype=np.uint8)
 
-    gray_safe = gray[5:h-5, 5:w-5]
+    # 3. Crop 12% dari tiap sisi untuk membuang garis papan / bingkai highlight "last move"
+    crop_x = int(w * 0.12)
+    crop_y = int(h * 0.12)
+    gray_safe = gray[crop_y:h-crop_y, crop_x:w-crop_x]
     
-    # 3. Kurangi noise dengan Gaussian Blur sebelum deteksi tepi
-    blurred = cv2.GaussianBlur(gray_safe, (5, 5), 0)
+    # 4. Resize ke 64x64 agar seragam untuk masking
+    gray_std = cv2.resize(gray_safe, (64, 64))
     
-    # 4. Gunakan Canny Edge Detection untuk mendapatkan 'kerangka' bidak
-    # Metode ini jauh lebih tahan terhadap perubahan warna background (kotak terang/gelap)
-    edges = cv2.Canny(blurred, 50, 150)
+    # 5. Hapus noise huruf/angka (koordinat papan di pojok) dengan meniban warna dominan
+    median_bg = np.median(gray_std)
+    gray_std[0:14, 0:14] = median_bg   # Pojok Kiri Atas
+    gray_std[-14:, -14:] = median_bg   # Pojok Kanan Bawah
+    gray_std[-14:, 0:14] = median_bg   # Pojok Kiri Bawah
+    gray_std[0:14, -14:] = median_bg   # Pojok Kanan Atas
     
-    # 5. Standardisasi ukuran ke 64x64 untuk matching
-    edges_std = cv2.resize(edges, (64, 64))
+    # 6. Kurangi noise dengan Gaussian Blur
+    blurred = cv2.GaussianBlur(gray_std, (5, 5), 0)
     
+    # 7. Canny Edge dengan Threshold tinggi agar tekstur kayu/background terabaikan
+    edges_std = cv2.Canny(blurred, 80, 200)
+
     return edges_std
 
 def is_empty(edges_std):
-    # Kotak kosong hampir tidak memiliki tepi (sangat sedikit piksel putih)
-    # Jika jumlah piksel tepi di bawah ambang batas, anggap kosong.
-    return np.count_nonzero(edges_std) < 80
+    # Karena tekstur dan bingkai sudah dibersihkan, sel kosong batas tepinya pasti sedikit
+    return np.count_nonzero(edges_std) < 100
 
 def build_templates(img):
     if not os.path.exists(MAPPING_PATH):
@@ -64,11 +71,6 @@ def build_templates(img):
     for i in range(64):
         label = mapping[i]
         
-        # Hapus template lama dari kotak ini (index i) agar tidak duplikat/bentrok jika diganti
-        keys_to_remove = [k for k in templates_dict.keys() if k.endswith(f"_{i}")]
-        for k in keys_to_remove:
-            del templates_dict[k]
-            
         if label != "." and label != "E":
             r, c = i // 8, i % 8
             cell = get_cell(img, r, c)
@@ -76,9 +78,8 @@ def build_templates(img):
             
             # Hanya simpan atau timpa(overwrite) jika bidak itu di atas kotak yang TIDAK KOSONG
             if not is_empty(processed_img):
-                unique_key = f"{label}_{i}" # Simpan dengan format Label_Index
-                templates_dict[unique_key] = processed_img
-                cv2.imwrite(os.path.join(DEBUG_DIR, f"{unique_key}.png"), processed_img)
+                templates_dict[label] = processed_img
+                cv2.imwrite(os.path.join(DEBUG_DIR, f"{label}.png"), processed_img)
 
     np.savez(TEMPLATE_CACHE, **templates_dict)
     return templates_dict
@@ -100,7 +101,7 @@ def match(processed_img, templates_dict):
 
         if score > best_score:
             best_score = score
-            best_shape = key.split('_')[0] # Ambil huruf aslinya (Contoh: R_63 menjadi R)
+            best_shape = key # Ambil huruf aslinya langsung
 
     return best_shape, best_score
 
@@ -128,8 +129,8 @@ for r in range(8):
 
         shape, score = match(processed_img, templates)
 
-        # Threshold untuk Canny Edge matching bisa sedikit lebih tinggi untuk akurasi
-        if score < 0.5: 
+        # Threshold untuk Canny Edge matching ditingkatkan agar aman dari sisa noise/ilusi bentuk
+        if score < 0.55: 
             board.append(".")
         else:
             board.append(shape) # Langsung masukkan hurufnya, tidak perlu cek warna lagi!

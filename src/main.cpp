@@ -32,6 +32,8 @@ struct MouseCallbackData {
     std::vector<bool> selectedCells; // Menyimpan status apakah cell sudah di-klik
     cv::Rect btnReset; // Area tombol Reset
     cv::Rect btnSave;  // Area tombol Save
+    cv::Rect btnAutoWBottom; // Tombol Scan Auto (Putih Bawah)
+    cv::Rect btnAutoWTop;    // Tombol Scan Auto (Putih Atas)
     int activePieceIndex = -1;
     bool needsRedraw = false;
     bool closeDialog = false; // Penanda untuk keluar dialog
@@ -53,6 +55,44 @@ void onMouse(int event, int x, int y, int flags, void* userdata) {
         // Cek klik di area tombol Save
         if (data->btnSave.contains(cv::Point(x, y))) {
             data->closeDialog = true;
+            return;
+        }
+
+        // Cek klik di area tombol Auto Scan
+        if (data->btnAutoWBottom.contains(cv::Point(x, y)) || data->btnAutoWTop.contains(cv::Point(x, y))) {
+            bool whiteBottom = data->btnAutoWBottom.contains(cv::Point(x, y));
+            
+            // Bersihkan seleksi sebelumnya
+            std::fill(data->selectionCounts.begin(), data->selectionCounts.end(), 0);
+            std::fill(data->selectedCells.begin(), data->selectedCells.end(), false);
+            
+            const char* layoutWB[8] = {
+                "rnbqkbnr", "pppppppp", "EEEEEEEE", "EEEEEEEE",
+                "EEEEEEEE", "EEEEEEEE", "PPPPPPPP", "RNBQKBNR"
+            };
+            const char* layoutWT[8] = {
+                "RNBKQBNR", "PPPPPPPP", "EEEEEEEE", "EEEEEEEE",
+                "EEEEEEEE", "EEEEEEEE", "pppppppp", "rnbkqbnr"
+            };
+            const char** layout = whiteBottom ? layoutWB : layoutWT;
+            
+            for (int i = 0; i < 64; i++) {
+                char p = layout[i / 8][i % 8]; // Dapatkan karakter susunan awal sesuai baris & kolom
+                
+                int idx = -1;
+                for (size_t j = 0; j < data->pieceKeys.size(); j++) { if (data->pieceKeys[j][0] == p) { idx = j; break; } }
+                
+                if (idx != -1 && data->selectionCounts[idx] < data->maxLimits[idx]) {
+                    data->selectionCounts[idx]++;
+                    cv::Mat cellImg = data->boardImage(data->grid[i].area);
+                    CreateDirectoryA("templates", NULL);
+                    std::string filename = "templates/" + data->pieceKeys[idx] + "_" + std::to_string(data->selectionCounts[idx]) + ".png";
+                    cv::imwrite(filename, cellImg);
+                    data->selectedCells[i] = true;
+                }
+            }
+            data->activePieceIndex = -1;
+            data->needsRedraw = true;
             return;
         }
 
@@ -155,7 +195,7 @@ int main() {
             if (frame.showPieceSelector) {
                 // --- MEMBUAT PANEL UI DI KANAN ---
                 int panelWidth = 220; // Diperlebar sedikit agar teks limit "[0/8]" muat
-                int minHeight = 520; // Minimal tinggi agar 13 tombol + Reset/Save muat
+                int minHeight = 560; // Ruang ekstra untuk tombol Auto Scan
                 int dialogHeight = height > minHeight ? height : minHeight;
                 
                 // Siapkan kumpulan data untuk dikirim ke event detektor mouse
@@ -180,7 +220,7 @@ int main() {
 
                 int startX = width + 10;
                 int startY = 10;
-                int bottomAreaHeight = 55; // Sediakan ruang untuk tombol Reset/Save di bawah
+                int bottomAreaHeight = 90; // Sediakan ruang untuk 4 tombol khusus di bawah
                 int btnHeight = (dialogHeight - bottomAreaHeight - 20) / 13; // Bagi rata sisa tinggi ruang
                 if (btnHeight > 35) btnHeight = 35; // Batasi tinggi maksimal tombol
                 
@@ -188,10 +228,12 @@ int main() {
                     cbData.buttonRects.push_back(cv::Rect(startX, startY + (i * btnHeight), panelWidth - 20, btnHeight - 5));
                 }
                 
-                // Definisikan letak Tombol Reset dan Save
+                // Definisikan letak Tombol Reset, Save dan Auto Scan
                 int btnW = (panelWidth - 30) / 2;
-                cbData.btnReset = cv::Rect(startX, dialogHeight - 45, btnW, 35);
-                cbData.btnSave = cv::Rect(startX + btnW + 10, dialogHeight - 45, btnW, 35);
+                cbData.btnReset = cv::Rect(startX, dialogHeight - 85, btnW, 35);
+                cbData.btnSave = cv::Rect(startX + btnW + 10, dialogHeight - 85, btnW, 35);
+                cbData.btnAutoWBottom = cv::Rect(startX, dialogHeight - 45, btnW, 35);
+                cbData.btnAutoWTop = cv::Rect(startX + btnW + 10, dialogHeight - 45, btnW, 35);
                 // ---------------------------------
                 cbData.needsRedraw = true; // Nyalakan render UI awal
                 
@@ -266,6 +308,17 @@ int main() {
                         cv::rectangle(cbData.dialogImg, cbData.btnSave, cv::Scalar(200, 100, 40), cv::FILLED); // Biru untuk Save
                         cv::rectangle(cbData.dialogImg, cbData.btnSave, cv::Scalar(0, 0, 0), 1);
                         cv::putText(cbData.dialogImg, "Save", cv::Point(cbData.btnSave.x + 30, cbData.btnSave.y + 22), 
+                                    cv::FONT_HERSHEY_SIMPLEX, 0.45, cv::Scalar(255, 255, 255), 1);
+
+                        // 6. Gambar Tombol Auto Scan
+                        cv::rectangle(cbData.dialogImg, cbData.btnAutoWBottom, cv::Scalar(100, 150, 100), cv::FILLED); // Hijau Redup
+                        cv::rectangle(cbData.dialogImg, cbData.btnAutoWBottom, cv::Scalar(0, 0, 0), 1);
+                        cv::putText(cbData.dialogImg, "W.Bottom", cv::Point(cbData.btnAutoWBottom.x + 10, cbData.btnAutoWBottom.y + 22), 
+                                    cv::FONT_HERSHEY_SIMPLEX, 0.45, cv::Scalar(255, 255, 255), 1);
+
+                        cv::rectangle(cbData.dialogImg, cbData.btnAutoWTop, cv::Scalar(100, 100, 150), cv::FILLED); // Ungu Redup
+                        cv::rectangle(cbData.dialogImg, cbData.btnAutoWTop, cv::Scalar(0, 0, 0), 1);
+                        cv::putText(cbData.dialogImg, "W.Top", cv::Point(cbData.btnAutoWTop.x + 20, cbData.btnAutoWTop.y + 22), 
                                     cv::FONT_HERSHEY_SIMPLEX, 0.45, cv::Scalar(255, 255, 255), 1);
                         
                         cv::imshow("Screenshot Area Grid", cbData.dialogImg);

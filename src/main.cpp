@@ -72,12 +72,27 @@ int main() {
                 }
                 
                 cv::imshow("Screenshot Area Grid", boardImage);
-                cv::waitKey(0); // Tahan popup sampai user menekan sembarang tombol di keyboard
-                cv::destroyWindow("Screenshot Area Grid"); // Tutup jendela setelah ditekan
                 
-                // Buka kembali kunci jendela utama dan pastikan jendelanya aktif di depan
+                // Tahan popup sampai user menekan tombol di keyboard atau menekan tombol 'X'
+                while (true) {
+                    if (cv::waitKey(100) >= 0) break; // Sembarang tombol ditekan
+                    
+                    try {
+                        // Periksa apakah jendela masih ada (belum ditutup manual via tombol 'X')
+                        if (cv::getWindowProperty("Screenshot Area Grid", cv::WND_PROP_VISIBLE) < 1) {
+                            break;
+                        }
+                    } catch (...) {
+                        break; // Jendela sudah tidak ditemukan
+                    }
+                }
+                
+                // Buka kembali kunci jendela utama TERLEBIH DAHULU sebelum menutup popup
                 EnableWindow(frame.hwnd, TRUE);
                 SetForegroundWindow(frame.hwnd);
+                
+                // Tutup popup secara aman, abaikan jika jendela sudah terlanjur hancur
+                try { cv::destroyWindow("Screenshot Area Grid"); } catch (...) {}
                 
                 frame.showPieceSelector = false; // Reset status penanda
             }

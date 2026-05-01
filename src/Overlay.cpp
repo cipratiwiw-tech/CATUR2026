@@ -200,13 +200,24 @@ void Overlay::start(const std::string& title, int w, int h) {
     wc.hbrBackground = NULL; 
     RegisterClass(&wc);
 
+    // --- MEMBUAT MENU BAR ---
+    HMENU hMenuBar = CreateMenu();
+    
+    // Kita buat ID sementara 9001 dan 9002 untuk nanti ditangkap di WM_COMMAND
+    AppendMenu(hMenuBar, MF_STRING, 9001, "Pilih Bidak");
+    AppendMenu(hMenuBar, MF_STRING, 9002, "Start Analyze");
+    // ------------------------
+
     hwnd = CreateWindowEx(
         WS_EX_TOPMOST | WS_EX_LAYERED, 
         wc.lpszClassName, 
         title.c_str(), 
         WS_OVERLAPPEDWINDOW, 
         CW_USEDEFAULT, CW_USEDEFAULT, w, h, 
-        NULL, NULL, wc.hInstance, NULL
+        NULL, 
+        hMenuBar, // <-- PASANG MENU BAR DI SINI
+        wc.hInstance, 
+        NULL
     );
 
     // Kunci Transparansi

@@ -35,14 +35,17 @@ bool ScreenCapture::findWindowRect(const std::string& windowName, RECT& rect) {
     if (data.foundHwnd) {
         targetHwnd = data.foundHwnd;
 
-        // --- TAMBAHKAN DUA BARIS INI ---
-        // Memaksa jendela Chrome muncul ke depan agar tidak terhalang
-        ShowWindow(targetHwnd, SW_RESTORE); // Jika di-minimize, buka kembali
-        SetForegroundWindow(targetHwnd);    // Jadikan jendela utama
-        // -------------------------------
+        // Pastikan jendela aktif dan tidak minimize
+        ShowWindow(targetHwnd, SW_RESTORE);
+        SetForegroundWindow(targetHwnd);
+        
+        // Kasih waktu 300ms agar Windows selesai resize/move secara visual
+        Sleep(300); 
 
-        GetWindowRect(targetHwnd, &rect);
-        return true;
+        // AMBIL KOORDINAT TERBARU (Fresh dari sistem)
+        if (GetWindowRect(targetHwnd, &rect)) {
+            return true;
+        }
     }
     return false;
 }

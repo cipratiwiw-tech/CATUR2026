@@ -21,35 +21,28 @@ def get_cell(img, row, col):
     return img[y1:y1 + cell_h, x1:x1 + cell_w]
 
 def preprocess(cell):
+    # 1. Ambil 1 kotak PENUH
     gray = cv2.cvtColor(cell, cv2.COLOR_BGR2GRAY)
-    gray_std = cv2.resize(gray, (64, 64))
     
-    edges = cv2.Canny(gray_std, 40, 120)
+    # 2. CROP PENGAMAN EKSTRA (5 piksel dari tiap sisi)
+    # Membuang sisa-sisa garis papan yang mungkin masih bocor dari C++
+    h, w = gray.shape
+    gray_safe = gray[5:h-5, 5:w-5]
     
-    # PERBAIKAN: Dilation diturunkan ke 2x2 agar garis tebal tapi tidak menggumpal
-    kernel = np.ones((2, 2), np.uint8)
-    edges_thick = cv2.dilate(edges, kernel, iterations=1)
+    # 3. Baru distandardisasi ukurannya ke 64x64
+    gray_std = cv2.resize(gray_safe, (64, 64))
     
-    # PERBAIKAN: Hapus pojokan cukup 14x14 agar badan bidak tidak terpotong
-    edges_thick[0:14, 0:14] = 0   
-    edges_thick[-14:, -14:] = 0   
+    # 4. Hapus noise huruf/angka (cukup 12x12 karena sudah dikikis di awal)
+    median_bg = np.median(gray_std)
+    gray_std[0:12, 0:12] = median_bg   # Pojok Kiri Atas
+    gray_std[-12:, -12:] = median_bg   # Pojok Kanan Bawah
     
-    return gray_std, edges_thick 
+    return gray_std
 
-def is_empty(edges_thick):
-    # Jika garis siluetnya sangat sedikit, fix ini kotak kosong
-    return cv2.countNonZero(edges_thick) < 20
-
-def get_piece_color(gray_std):
-    # PERBAIKAN: Ambil rata-rata kecerahan di pusat badan bidak
-    # Jauh lebih akurat daripada menghitung jumlah piksel
-    center_area = gray_std[24:40, 24:40]
-    avg_brightness = np.mean(center_area)
-    
-    if avg_brightness > 120:
-        return "WHITE"
-    else:
-        return "BLACK"
+def is_empty(gray_std):
+    # Sel kosong warnanya solid, standar deviasinya pasti sangat rendah (< 18)
+    # Jika ada bidak, warnanya pasti bervariasi tajam (std > 30)
+    return np.std(gray_std) < 18
 
 def build_templates(img):
     if not os.path.exists(MAPPING_PATH):
@@ -65,13 +58,12 @@ def build_templates(img):
         if label != ".":
             r, c = i // 8, i % 8
             cell = get_cell(img, r, c)
-            gray, edges = preprocess(cell)
+            gray_std = preprocess(cell)
             
-            # PERBAIKAN: Jangan di-upper()! Biarkan 'p' dan 'P' tersimpan masing-masing
-            # agar mesin punya banyak referensi bentuk.
+            # SIMPAN HURUF ASLI! (P untuk putih, p untuk hitam tidak akan saling tindih)
             if label not in templates_dict:
-                templates_dict[label] = edges
-                cv2.imwrite(os.path.join(DEBUG_DIR, f"{label}.png"), edges)
+                templates_dict[label] = gray_std
+                cv2.imwrite(os.path.join(DEBUG_DIR, f"{label}.png"), gray_std)
 
     np.savez(TEMPLATE_CACHE, **templates_dict)
     return templates_dict
@@ -82,12 +74,13 @@ def load_templates():
         return {key: data[key] for key in data.files}
     return None
 
-def match(cell_edges, templates_dict):
+def match(gray_std, templates_dict):
     best_score = -1
     best_shape = "."
 
+    # Langsung tes ke semua 12 template bidak yang tersimpan
     for label, t_img in templates_dict.items():
-        res = cv2.matchTemplate(cell_edges, t_img, cv2.TM_CCOEFF_NORMED)
+        res = cv2.matchTemplate(gray_std, t_img, cv2.TM_CCOEFF_NORMED)
         score = res[0][0]
 
         if score > best_score:
@@ -112,28 +105,19 @@ board = []
 for r in range(8):
     for c in range(8):
         cell = get_cell(img, r, c)
-        gray, edges = preprocess(cell)
+        gray_std = preprocess(cell)
 
-        if is_empty(edges):
+        if is_empty(gray_std):
             board.append(".")
             continue
 
-        shape, score = match(edges, templates)
+        shape, score = match(gray_std, templates)
 
-        # Toleransi dikembalikan ke 0.25
-        if score < 0.25: 
+        # CCOEFF_NORMED punya skala skor -1.0 sampai 1.0. Batas 0.45 sangat wajar.
+        if score < 0.45: 
             board.append(".")
         else:
-            # PERBAIKAN: Kalau kebetulan yang mirip adalah template Empty (E), 
-            # paksa jadi titik (.) agar C++ tidak nulis huruf E di FEN.
-            if shape.upper() == "E":
-                board.append(".")
-            else:
-                color = get_piece_color(gray)
-                if color == "WHITE":
-                    board.append(shape.upper())
-                else:
-                    board.append(shape.lower())
+            board.append(shape) # Langsung masukkan hurufnya, tidak perlu cek warna lagi!
 
 with open(BOARD_JSON, "w") as f:
     json.dump(board, f)

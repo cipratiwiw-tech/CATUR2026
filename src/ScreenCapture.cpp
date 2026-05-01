@@ -1,44 +1,68 @@
 #include "ScreenCapture.h"
+#include <iostream>
 
 ScreenCapture::ScreenCapture() {
-    // Mendapatkan akses ke seluruh layar desktop Windows
-    hwndDesktop = GetDesktopWindow();
+    targetHwnd = GetDesktopWindow();
 }
 
 ScreenCapture::~ScreenCapture() {}
 
+// Struktur bantuan untuk mencari jendela
+struct SearchData {
+    std::string targetTitle;
+    HWND foundHwnd;
+};
+
+// Fungsi internal Windows untuk mengecek semua jendela yang terbuka
+BOOL CALLBACK EnumWindowsProc(HWND hwnd, LPARAM lParam) {
+    SearchData* data = (SearchData*)lParam;
+    char title[256];
+    GetWindowTextA(hwnd, title, sizeof(title));
+    std::string windowTitle(title);
+
+    // Jika judul jendela mengandung kata kunci dan jendelanya sedang tampil
+    if (windowTitle.find(data->targetTitle) != std::string::npos && IsWindowVisible(hwnd)) {
+        data->foundHwnd = hwnd;
+        return FALSE; // Berhenti mencari karena sudah ketemu
+    }
+    return TRUE; // Lanjut cari jendela berikutnya
+}
+
+bool ScreenCapture::findWindowRect(const std::string& windowName, RECT& rect) {
+    SearchData data = { windowName, NULL };
+    
+    // Cari jendela secara otomatis di sistem
+    EnumWindows(EnumWindowsProc, (LPARAM)&data);
+
+    if (data.foundHwnd) {
+        targetHwnd = data.foundHwnd;
+        
+        // Cetak judul jendela yang ditemukan biar kita yakin
+        char finalTitle[256];
+        GetWindowTextA(targetHwnd, finalTitle, sizeof(finalTitle));
+        std::cout << "Target Ditemukan: [" << finalTitle << "]" << std::endl;
+
+        GetWindowRect(targetHwnd, &rect);
+        return true;
+    }
+    return false;
+}
+
 cv::Mat ScreenCapture::captureRegion(int x, int y, int width, int height) {
-    HDC hwindowDC = GetDC(hwndDesktop);
+    // Kode capture tetap sama dengan yang sebelumnya
+    HDC hwindowDC = GetDC(GetDesktopWindow());
     HDC hwindowCompatibleDC = CreateCompatibleDC(hwindowDC);
-    SetStretchBltMode(hwindowCompatibleDC, COLORONCOLOR);
-
-    // Membuat kanvas kosong di memori
     HBITMAP hbwindow = CreateCompatibleBitmap(hwindowDC, width, height);
-    BITMAPINFOHEADER bi;
+    BITMAPINFOHEADER bi = { 0 };
     bi.biSize = sizeof(BITMAPINFOHEADER);
-    bi.biWidth = width;
-    bi.biHeight = -height;  // Negatif agar gambar tidak terbalik
-    bi.biPlanes = 1;
-    bi.biBitCount = 32;
-    bi.biCompression = BI_RGB;
-    bi.biSizeImage = 0;
-    bi.biXPelsPerMeter = 0;
-    bi.biYPelsPerMeter = 0;
-    bi.biClrUsed = 0;
-    bi.biClrImportant = 0;
-
-    // Menyalin piksel layar ke kanvas kosong tadi
+    bi.biWidth = width; bi.biHeight = -height;
+    bi.biPlanes = 1; bi.biBitCount = 32; bi.biCompression = BI_RGB;
     SelectObject(hwindowCompatibleDC, hbwindow);
     BitBlt(hwindowCompatibleDC, 0, 0, width, height, hwindowDC, x, y, SRCCOPY);
-
-    // Mengubah kanvas Windows menjadi format gambar OpenCV (cv::Mat)
     cv::Mat mat(height, width, CV_8UC4);
     GetDIBits(hwindowCompatibleDC, hbwindow, 0, height, mat.data, (BITMAPINFO*)&bi, DIB_RGB_COLORS);
-
-    // Membersihkan memori agar RAM tidak bocor (Memory Leak)
     DeleteObject(hbwindow);
     DeleteDC(hwindowCompatibleDC);
-    ReleaseDC(hwndDesktop, hwindowDC);
-
+    ReleaseDC(GetDesktopWindow(), hwindowDC);
     return mat;
 }

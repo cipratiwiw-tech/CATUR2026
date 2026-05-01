@@ -3,25 +3,30 @@
 #include "ScreenCapture.h"
 
 int main() {
-    std::cout << "Memulai modul Screen Capture..." << std::endl;
-
-    // Menghidupkan alat rekam
     ScreenCapture capturer;
+    RECT rect;
 
-    // Mengambil gambar layar di kordinat X=0, Y=0 (Pojok kiri atas)
-    // Dengan lebar 500 pixel dan tinggi 500 pixel
-    cv::Mat screenshot = capturer.captureRegion(0, 0, 500, 500);
+    std::cout << "Mencari jendela browser..." << std::endl;
 
-    // Memeriksa apakah gambar berhasil ditangkap
-    if (screenshot.empty()) {
-        std::cout << "Gagal mengambil gambar layar!" << std::endl;
-        return -1;
+    // Coba cari jendela yang judulnya ada kata "Chess"
+    // Kalau kamu pakai Lichess, bisa ganti jadi "Lichess"
+    if (capturer.findWindowRect("Chess", rect)) {
+        int width = rect.right - rect.left;
+        int height = rect.bottom - rect.top;
+
+        // Ambil gambar tepat di jendela tersebut
+        cv::Mat browserImg = capturer.captureRegion(rect.left, rect.top, width, height);
+
+        if (!browserImg.empty()) {
+            cv::imwrite("hasil_browser.jpg", browserImg);
+            std::cout << "BERHASIL! Cek jendela pop-up." << std::endl;
+            
+            cv::imshow("Hasil Tangkapan Otomatis", browserImg);
+            cv::waitKey(0); 
+        }
+    } else {
+        std::cout << "ERROR: Jendela 'Chess' tidak ditemukan! Pastikan Chrome sudah terbuka." << std::endl;
     }
-
-    // Menyimpan hasil tangkapan layar ke dalam file
-    cv::imwrite("hasil_jepretan.jpg", screenshot);
-    
-    std::cout << "Sukses! Coba cek folder build kamu, ada file 'hasil_jepretan.jpg'!" << std::endl;
 
     return 0;
 }

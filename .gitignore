@@ -53,3 +53,59 @@ Thumbs.db
 # OPTIONAL: templates (kalau mau tetap disimpan, HAPUS ini)
 # =========================
 # templates/
+
+
+# =========================
+# VIRTUAL ENVIRONMENT
+# =========================
+venv/
+.venv/
+env/
+ENV/
+
+# =========================
+# PYTHON CACHE
+# =========================
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.pyc.*
+*.py,cover
+
+# =========================
+# PYTHON BUILD / DIST
+# =========================
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# =========================
+# LOG & TEMP
+# =========================
+*.log
+*.tmp
+
+# =========================
+# ENV VARIABLE
+# =========================
+.env
+.env.*
+
+# =========================
+# JUPYTER
+# =========================
+.ipynb_checkpoints/
+
+# =========================
+# IDE / EDITOR
+# =========================
+.vscode/
+.idea/
+
+# =========================
+# OS
+# =========================
+.DS_Store
+Thumbs.db

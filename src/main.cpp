@@ -10,58 +10,10 @@
 #include "Overlay.h"
 #include "ScreenCapture.h"
 #include "Vision.h"
-#include <deque>
 #include <map>
+#include <fstream>
+#include <sstream>
 namespace fs = std::filesystem;
-
-// --- TASK 1: Add Temporal Stability Struct ---
-struct CellHistory {
-    std::deque<std::string> history;
-};
-std::vector<CellHistory> cellHistories(64);
-
-void updateHistoryAndVote(int index, const std::string& newResult) {
-    auto& hist = cellHistories[index].history;
-    hist.push_back(newResult);
-    if (hist.size() > 5) hist.pop_front(); // Batasi max 5 frame terakhir
-}
-
-std::string getStableResult(int index) {
-    std::map<std::string, int> votes;
-    for (const auto& res : cellHistories[index].history) votes[res]++;
-    
-    std::string bestRes = ".";
-    int maxVotes = 0;
-    for (const auto& pair : votes) {
-        if (pair.second > maxVotes) {
-            maxVotes = pair.second;
-            bestRes = pair.first;
-        }
-    }
-    return bestRes;
-}
-
-// --- TASK 2: Change Detection Helper ---
-bool isSquareChanged(const cv::Mat& prev, const cv::Mat& curr) {
-    if (prev.empty() || curr.empty() || prev.size() != curr.size()) return true;
-    cv::Mat diff, grayPrev, grayCurr;
-    
-    if (prev.channels() == 4) cv::cvtColor(prev, grayPrev, cv::COLOR_BGRA2GRAY);
-    else if (prev.channels() == 3) cv::cvtColor(prev, grayPrev, cv::COLOR_BGR2GRAY);
-    else grayPrev = prev;
-    
-    if (curr.channels() == 4) cv::cvtColor(curr, grayCurr, cv::COLOR_BGRA2GRAY);
-    else if (curr.channels() == 3) cv::cvtColor(curr, grayCurr, cv::COLOR_BGR2GRAY);
-    else grayCurr = curr;
-
-    cv::absdiff(grayPrev, grayCurr, diff);
-    cv::Scalar meanDiff = cv::mean(diff);
-    
-    // [FIX] Naikkan toleransi dari 3.0 ke 8.0 agar noise layar tidak dianggap pergerakan
-    return meanDiff[0] > 8.0; 
-}
-
-
 
 // Struktur dan fungsi Callback untuk Mouse di Jendela Popup
 struct MouseCallbackData {
@@ -75,6 +27,8 @@ struct MouseCallbackData {
     std::vector<cv::Rect> buttonRects;
     std::vector<ChessSquare> grid;
     std::vector<bool> selectedCells; // Menyimpan status apakah cell sudah di-klik
+    std::vector<std::string> cellLabels; // TAMBAHAN: Menyimpan huruf FEN (P, N, k, dll)
+
     cv::Rect btnReset; // Area tombol Reset
     cv::Rect btnSave;  // Area tombol Save
     cv::Rect btnAutoWBottom; // Tombol Scan Auto (Putih Bawah)
@@ -130,10 +84,9 @@ void onMouse(int event, int x, int y, int flags, void* userdata) {
                 if (idx != -1 && data->selectionCounts[idx] < data->maxLimits[idx]) {
                     data->selectionCounts[idx]++;
                     cv::Mat cellImg = data->boardImage(data->grid[i].area);
-                    CreateDirectoryA("templates", NULL);
-                    std::string filename = "templates/" + data->pieceKeys[idx] + "_" + std::to_string(data->selectionCounts[idx]) + ".png";
-                    cv::imwrite(filename, cellImg);
                     data->selectedCells[i] = true;
+                    // TAMBAHKAN BARIS INI: Agar tombol Auto Scan juga menyimpan identitas FEN bidak ke template!
+                    data->cellLabels[i] = data->pieceKeys[idx]; 
                 }
             }
             data->activePieceIndex = -1;
@@ -167,14 +120,11 @@ void onMouse(int event, int x, int y, int flags, void* userdata) {
                         data->selectionCounts[idx]++; // Tambah hitungan
 
                         cv::Mat cellImg = data->boardImage(sq.area);
-                        CreateDirectoryA("templates", NULL); // Buat folder templates jika belum ada
-                        
-                        // Format nama file baru agar tidak tertimpa: P_1.png, P_2.png, E_1.png dst.
-                        std::string filename = "templates/" + data->pieceKeys[idx] + "_" + std::to_string(data->selectionCounts[idx]) + ".png";
-                        cv::imwrite(filename, cellImg); // Ekspor gambar!
                         
                         // Tandai bahwa cell ini sudah pernah di-select
                         data->selectedCells[i] = true;
+                        data->cellLabels[i] = data->pieceKeys[idx]; // TAMBAHAN: Rekam label bidak untuk kotak ini
+                        
 
                         // Efek visual sementara (kotak merah) saat gambar di-crop
                         cv::rectangle(data->dialogImg, sq.area, cv::Scalar(0, 0, 255, 255), 2);
@@ -190,6 +140,27 @@ void onMouse(int event, int x, int y, int flags, void* userdata) {
     }
 }
 
+std::vector<std::string> loadBoardFromJson(const std::string& filename) {
+    std::vector<std::string> board(64, ".");
+
+    std::ifstream file(filename);
+    if (!file.is_open()) return board;
+
+    std::string content((std::istreambuf_iterator<char>(file)),
+                         std::istreambuf_iterator<char>());
+
+    int idx = 0;
+    for (char c : content) {
+        if (std::isalpha(c) || c == '.') {
+            if (idx < 64) {
+                board[idx++] = std::string(1, c);
+            }
+        }
+    }
+
+    return board;
+}
+
 int main() {
     SetProcessDPIAware();
 
@@ -203,14 +174,6 @@ int main() {
     ScreenCapture capture;
     Vision vision;
 
-    std::vector<PieceTemplate> templates;
-    bool templatesLoaded = false;
-    
-    // TAMBAHKAN INISIALISASI INI SEBELUM LOOP
-    std::vector<cv::Mat> prevSquares(64);
-    std::vector<double> prevScores(64, 0.0);
-    bool enableDebugVisuals = true; 
-    
     while (true) {
         // Jika menu belum diklik, aplikasi cukup "tidur" dan cek kembali
         if (!frame.isAnalyzing && !frame.showPieceSelector) {
@@ -234,9 +197,10 @@ int main() {
         int width = bottomRight.x - topLeft.x;
         int height = bottomRight.y - topLeft.y;
 
+        cv::Mat boardImage;
         if (width > 0 && height > 0) {
-                        // 2. Ambil screenshot murni dari area papan catur yang ditargetkan
-            cv::Mat boardImage = capture.captureRegion(topLeft.x, topLeft.y, width, height);
+            // 2. Ambil screenshot murni dari area papan catur yang ditargetkan
+            boardImage = capture.captureRegion(topLeft.x, topLeft.y, width, height);
             
             // 3. Bagi gambar ke dalam grid 8x8 kotak (Dipindah agar bisa digunakan di Callback)
             std::vector<ChessSquare> grid = vision.createGrid(cv::Point(0, 0), width, height);
@@ -255,6 +219,7 @@ int main() {
                 cbData.boardImage = boardImage;
                 cbData.grid = grid;
                 cbData.selectedCells.assign(64, false); // Set awal ke-64 kotak belum di-select
+                cbData.cellLabels.assign(64, "E"); // TAMBAHAN: Inisialisasi awal list label ke-64 kotak
                 cbData.dialogImg = cv::Mat(dialogHeight, width + panelWidth, CV_8UC4, cv::Scalar(45, 45, 45, 255));
                  // Gambar list tombol bidak di sisi kanan
                 cbData.pieces = {
@@ -396,87 +361,42 @@ int main() {
                 
                 // Tutup popup secara aman, abaikan jika jendela sudah terlanjur hancur
                 try { cv::destroyWindow("Screenshot Area Grid"); } catch (...) {}
+
+                // TAMBAHAN: Tulis pemetaan template ke JSON untuk dibaca Python
+                std::ofstream mapFile("template_mapping.json");
+                if (mapFile.is_open()) {
+                    mapFile << "[\n";
+                    for (int i = 0; i < 64; i++) {
+                        mapFile << "  \"" << cbData.cellLabels[i] << "\"";
+                        if (i < 63) mapFile << ",\n";
+                        else mapFile << "\n";
+                    }
+                    mapFile << "]\n";
+                    mapFile.close();
+                }
                 
                 frame.showPieceSelector = false; // Reset status penanda
-                templatesLoaded = false; // Minta aplikasi memuat ulang (reload) template baru setelah pilih bidak
-            }
-
-            // 4. Analisa masing-masing kotak (Kode pencocokan template bidak)
-            if (frame.isAnalyzing) {
-                // TASK 10: Cache Templates
-                if (!templatesLoaded) {
-                    templates.clear();
-                    if (fs::exists("templates")) {
-                        for (const auto& entry : fs::directory_iterator("templates")) {
-                            if (entry.path().extension() == ".png") {
-                                std::string filename = entry.path().stem().string();
-                                std::string piece = filename.substr(0, 1);
-                                cv::Mat img = cv::imread(entry.path().string(), cv::IMREAD_COLOR);
-                                if (!img.empty()) {
-                                    cv::Mat gray, edges;
-                                    cv::cvtColor(img, gray, cv::COLOR_BGR2GRAY);
-                                    cv::Canny(gray, edges, 50, 150);
-                                    templates.push_back({piece, img, gray, edges}); 
-                                }
-                            }
-                        }
-                    }
-                    templatesLoaded = true;
-                }
-
-                if (!templates.empty()) {
-                    cv::Mat debugImg;
-                    if (enableDebugVisuals) debugImg = boardImage.clone(); 
-
-                    for (int i = 0; i < 64; i++) {
-                        cv::Mat squareImg = boardImage(grid[i].area);
-                        
-                        // TASK 2 & 8: Hitung perbedaan, skip jika tidak ada pergerakan
-                        bool changed = isSquareChanged(prevSquares[i], squareImg);
-                        
-                        std::string detectedPiece = frame.boardState[i]; // Reuse previous
-                        double currentScore = prevScores[i];
-
-                        if (changed) {
-                            // TASK 7: Panggil modul Vision
-                            detectedPiece = vision.detectPiece(squareImg, templates, currentScore);
-                            
-                            // TASK 6: Score smoothing (Anti Flicker)
-                            currentScore = (0.6 * currentScore) + (0.4 * prevScores[i]);
-                            
-                            // Update cache
-                            prevSquares[i] = squareImg.clone();
-                            prevScores[i] = currentScore;
-                        }
-
-                        // TASK 1: Majority Vote / Temporal Stability
-                        updateHistoryAndVote(i, detectedPiece);
-                        frame.boardState[i] = getStableResult(i);
-
-                        // TASK 9: Gambar Visualisasi Debug
-                        if (enableDebugVisuals) {
-                            if (changed) {
-                                cv::rectangle(debugImg, grid[i].area, cv::Scalar(0, 255, 255), 2); // Yellow Box
-                            }
-                            
-                            std::string label = frame.boardState[i] + " (" + std::to_string(currentScore).substr(0,4) + ")";
-                            
-                            // [FIX] Pisahkan deklarasi Point agar MSVC compiler tidak error
-                            cv::Point textPos(grid[i].area.x + 5, grid[i].area.y + 20);
-                            cv::putText(debugImg, label, textPos, cv::FONT_HERSHEY_SIMPLEX, 0.45, cv::Scalar(0, 255, 0), 2);
-                        }
-                    }
-
-                    if (enableDebugVisuals) {
-                        cv::imshow("Debug Visualization", debugImg);
-                        cv::waitKey(1);
-                    }
-                }
             }
         }
 
         // Hanya update logika FEN jika mode Analyze AKTIF
         if (frame.isAnalyzing) {
+            if (!boardImage.empty()) {
+                // 1. Save image ke file
+                cv::imwrite("frame.png", boardImage);
+
+                // 2. Panggil Python (blocking dulu, nanti kita async)
+                system(".venv\\Scripts\\python detect.py");
+
+                // 3. Load hasil dari Python
+                std::vector<std::string> board = loadBoardFromJson("board.json");
+
+                // 4. Update state
+                for (int i = 0; i < 64; i++) {
+                    frame.boardState[i] = board[i];
+                }
+            }
+
             std::string fen = "";
             for (int i = 0; i < 8; i++) {
                 int emptyCount = 0;

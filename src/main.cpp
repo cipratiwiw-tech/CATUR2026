@@ -16,17 +16,37 @@ struct MouseCallbackData {
     int width, height;
     std::vector<std::string> pieces;
     std::vector<std::string> pieceKeys;
+    std::vector<int> maxLimits;
+    std::vector<int> selectionCounts;
     std::vector<cv::Rect> buttonRects;
     std::vector<ChessSquare> grid;
     std::vector<bool> selectedCells; // Menyimpan status apakah cell sudah di-klik
+    cv::Rect btnReset; // Area tombol Reset
+    cv::Rect btnSave;  // Area tombol Save
     int activePieceIndex = -1;
     bool needsRedraw = false;
+    bool closeDialog = false; // Penanda untuk keluar dialog
 };
 
 void onMouse(int event, int x, int y, int flags, void* userdata) {
     if (event == cv::EVENT_LBUTTONDOWN) {
         MouseCallbackData* data = static_cast<MouseCallbackData*>(userdata);
         
+        // Cek klik di area tombol Reset
+        if (data->btnReset.contains(cv::Point(x, y))) {
+            std::fill(data->selectionCounts.begin(), data->selectionCounts.end(), 0);
+            std::fill(data->selectedCells.begin(), data->selectedCells.end(), false);
+            data->activePieceIndex = -1;
+            data->needsRedraw = true;
+            return;
+        }
+        
+        // Cek klik di area tombol Save
+        if (data->btnSave.contains(cv::Point(x, y))) {
+            data->closeDialog = true;
+            return;
+        }
+
         // Cek klik di area tombol (panel kanan)
         for (int i = 0; i < data->buttonRects.size(); i++) {
             if (data->buttonRects[i].contains(cv::Point(x, y))) {
@@ -42,9 +62,21 @@ void onMouse(int event, int x, int y, int flags, void* userdata) {
                 for (int i = 0; i < data->grid.size(); i++) {
                     const auto& sq = data->grid[i];
                     if (sq.area.contains(cv::Point(x, y))) {
+                        // Cegah seleksi berulang di kotak yang sama
+                        if (data->selectedCells[i]) return;
+                        
+                        int idx = data->activePieceIndex;
+                        
+                        // Cek apakah sudah mencapai batas maksimal seleksi untuk bidak ini
+                        if (data->selectionCounts[idx] >= data->maxLimits[idx]) return;
+                        
+                        data->selectionCounts[idx]++; // Tambah hitungan
+
                         cv::Mat cellImg = data->boardImage(sq.area);
                         CreateDirectoryA("templates", NULL); // Buat folder templates jika belum ada
-                        std::string filename = "templates/" + data->pieceKeys[data->activePieceIndex] + ".png";
+                        
+                        // Format nama file baru agar tidak tertimpa: P_1.png, P_2.png, E_1.png dst.
+                        std::string filename = "templates/" + data->pieceKeys[idx] + "_" + std::to_string(data->selectionCounts[idx]) + ".png";
                         cv::imwrite(filename, cellImg); // Ekspor gambar!
                         
                         // Tandai bahwa cell ini sudah pernah di-select
@@ -118,8 +150,8 @@ int main() {
             // Tampilkan POPUP SCREENSHOT jika menu Pilih Bidak diklik
             if (frame.showPieceSelector) {
                 // --- MEMBUAT PANEL UI DI KANAN ---
-                int panelWidth = 200;
-                int minHeight = 420; // Minimal tinggi agar 12 tombol muat
+                int panelWidth = 220; // Diperlebar sedikit agar teks limit "[0/8]" muat
+                int minHeight = 520; // Minimal tinggi agar 13 tombol + Reset/Save muat
                 int dialogHeight = height > minHeight ? height : minHeight;
                 
                 // Siapkan kumpulan data untuk dikirim ke event detektor mouse
@@ -135,18 +167,27 @@ int main() {
                     "Putih: Pawn (P)", "Putih: Knight (N)", "Putih: Bishop (B)", 
                     "Putih: Rook (R)", "Putih: Queen (Q)", "Putih: King (K)",
                     "Hitam: Pawn (p)", "Hitam: Knight (n)", "Hitam: Bishop (b)", 
-                    "Hitam: Rook (r)", "Hitam: Queen (q)", "Hitam: King (k)"
+                    "Hitam: Rook (r)", "Hitam: Queen (q)", "Hitam: King (k)",
+                    "Kosong: Empty (E)"
                 };
-                cbData.pieceKeys = {"P", "N", "B", "R", "Q", "K", "p", "n", "b", "r", "q", "k"}; // Nama File Referensi FEN
+                cbData.pieceKeys = {"P", "N", "B", "R", "Q", "K", "p", "n", "b", "r", "q", "k", "E"}; // Nama File Referensi FEN
+                cbData.maxLimits = {8, 2, 2, 2, 1, 1, 8, 2, 2, 2, 1, 1, 64}; // Batas seleksi per-bidak
+                cbData.selectionCounts.assign(13, 0); // Jumlah seleksi dimulai dari 0
 
                 int startX = width + 10;
                 int startY = 10;
-                int btnHeight = (dialogHeight - 20) / 12; // Bagi rata tinggi ruang
+                int bottomAreaHeight = 55; // Sediakan ruang untuk tombol Reset/Save di bawah
+                int btnHeight = (dialogHeight - bottomAreaHeight - 20) / 13; // Bagi rata sisa tinggi ruang
                 if (btnHeight > 35) btnHeight = 35; // Batasi tinggi maksimal tombol
                 
                 for (int i = 0; i < cbData.pieces.size(); i++) {
                     cbData.buttonRects.push_back(cv::Rect(startX, startY + (i * btnHeight), panelWidth - 20, btnHeight - 5));
                 }
+                
+                // Definisikan letak Tombol Reset dan Save
+                int btnW = (panelWidth - 30) / 2;
+                cbData.btnReset = cv::Rect(startX, dialogHeight - 45, btnW, 35);
+                cbData.btnSave = cv::Rect(startX + btnW + 10, dialogHeight - 45, btnW, 35);
                 // ---------------------------------
                 cbData.needsRedraw = true; // Nyalakan render UI awal
                 
@@ -195,7 +236,8 @@ int main() {
                             
                             // Warna tombol jadi Hijau terang kalau Aktif
                             cv::Scalar btnColor = isActive ? cv::Scalar(0, 200, 0, 255) : 
-                                ((i < 6) ? cv::Scalar(200, 200, 200, 255) : cv::Scalar(80, 80, 80, 255));
+                                ((i < 6) ? cv::Scalar(200, 200, 200, 255) : 
+                                 (i < 12) ? cv::Scalar(80, 80, 80, 255) : cv::Scalar(120, 120, 150, 255)); // Tombol Empty (E)
                             cv::Scalar textColor = (i < 6 && !isActive) ? cv::Scalar(0, 0, 0, 255) : cv::Scalar(255, 255, 255, 255);
                             
                             cv::rectangle(cbData.dialogImg, btn, btnColor, cv::FILLED);
@@ -204,15 +246,31 @@ int main() {
                             cv::Scalar borderColor = isActive ? cv::Scalar(0, 255, 0, 255) : cv::Scalar(0, 0, 0, 255);
                             cv::rectangle(cbData.dialogImg, btn, borderColor, thickness);
                             
-                            cv::putText(cbData.dialogImg, cbData.pieces[i], cv::Point(btn.x + 10, btn.y + (btn.height / 2) + 5), 
-                                        cv::FONT_HERSHEY_SIMPLEX, 0.45, textColor, 1);
+                            // Gabungkan nama tombol dengan informasi sisa limit kuota (Contoh: "Putih: Pawn (P) [1/8]")
+                            std::string text = cbData.pieces[i] + " [" + std::to_string(cbData.selectionCounts[i]) + "/" + std::to_string(cbData.maxLimits[i]) + "]";
+                            
+                            cv::putText(cbData.dialogImg, text, cv::Point(btn.x + 10, btn.y + (btn.height / 2) + 5), 
+                                        cv::FONT_HERSHEY_SIMPLEX, 0.40, textColor, 1);
                         }
+                        
+                        // 5. Gambar Tombol Reset dan Save
+                        cv::rectangle(cbData.dialogImg, cbData.btnReset, cv::Scalar(60, 60, 200), cv::FILLED); // Merah untuk Reset
+                        cv::rectangle(cbData.dialogImg, cbData.btnReset, cv::Scalar(0, 0, 0), 1);
+                        cv::putText(cbData.dialogImg, "Reset", cv::Point(cbData.btnReset.x + 25, cbData.btnReset.y + 22), 
+                                    cv::FONT_HERSHEY_SIMPLEX, 0.45, cv::Scalar(255, 255, 255), 1);
+
+                        cv::rectangle(cbData.dialogImg, cbData.btnSave, cv::Scalar(200, 100, 40), cv::FILLED); // Biru untuk Save
+                        cv::rectangle(cbData.dialogImg, cbData.btnSave, cv::Scalar(0, 0, 0), 1);
+                        cv::putText(cbData.dialogImg, "Save", cv::Point(cbData.btnSave.x + 30, cbData.btnSave.y + 22), 
+                                    cv::FONT_HERSHEY_SIMPLEX, 0.45, cv::Scalar(255, 255, 255), 1);
                         
                         cv::imshow("Screenshot Area Grid", cbData.dialogImg);
                         cbData.needsRedraw = false;
                     }
 
                     if (cv::waitKey(50) >= 0) break; // Delay sengaja dibuat lebih kecil (50ms) agar klik mouse sangat responsif
+                    
+                    if (cbData.closeDialog) break; // Keluar loop jika tombol Save diklik
                     
                     try {
                         // Periksa apakah jendela masih ada (belum ditutup manual via tombol 'X')

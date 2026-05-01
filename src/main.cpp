@@ -214,7 +214,7 @@ int main() {
         int height = bottomRight.y - topLeft.y;
 
         cv::Mat boardImage;
-        if (width > 0 && height > 0) {
+        if (width >= 64 && height >= 64) {
             // 2. Ambil screenshot murni dari area papan catur yang ditargetkan
             boardImage = capture.captureRegion(topLeft.x, topLeft.y, width, height);
             

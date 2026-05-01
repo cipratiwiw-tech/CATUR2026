@@ -46,6 +46,53 @@ void Overlay::showContextMenu(HWND hwnd, int x, int y) {
 
 LRESULT CALLBACK Overlay::WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
     switch (uMsg) {
+        case WM_GETMINMAXINFO: {
+            MINMAXINFO* mmi = (MINMAXINFO*)lParam;
+            mmi->ptMinTrackSize.x = 250; // Cegah jendela dikecilkan hingga hilang/crash
+            mmi->ptMinTrackSize.y = 250;
+            return 0;
+        }
+
+        case WM_SIZING: {
+            RECT* rect = (RECT*)lParam;
+            
+            // Kunci Aspect Ratio agar area grid papan catur selalu Persegi 1:1
+            // Jika rasio meleset (lonjong/gepeng), deteksi gambar di Python akan gagal total.
+            int padding = 20;
+            int barWidth = 20;
+            int barGap = 15;
+            
+            // Hitung ketebalan border asli Windows dan Title Bar
+            RECT wRect = {0, 0, 0, 0};
+            AdjustWindowRectEx(&wRect, WS_OVERLAPPEDWINDOW, TRUE, WS_EX_TOPMOST | WS_EX_LAYERED);
+            int borderW = wRect.right - wRect.left;
+            int borderH = wRect.bottom - wRect.top;
+
+            // Dapatkan dimensi area dalam (client area) saat ini
+            int currentClientW = (rect->right - rect->left) - borderW;
+            int currentClientH = (rect->bottom - rect->top) - borderH;
+
+            // Kita butuh: Lebar Grid == Tinggi Grid
+            if (wParam == WMSZ_LEFT || wParam == WMSZ_RIGHT) {
+                // Jika user menarik dari kiri/kanan, sesuaikan tingginya secara otomatis
+                int newClientH = currentClientW - (barWidth + barGap);
+                rect->bottom = rect->top + newClientH + borderH;
+            } else if (wParam == WMSZ_TOP || wParam == WMSZ_BOTTOM) {
+                // Jika user menarik dari atas/bawah, sesuaikan lebarnya
+                int newClientW = currentClientH + (barWidth + barGap);
+                rect->right = rect->left + newClientW + borderW;
+            } else {
+                // Jika ditarik menyudut (diagonal), jadikan tinggi sebagai acuan absolut
+                int newClientW = currentClientH + (barWidth + barGap);
+                if (wParam == WMSZ_BOTTOMRIGHT || wParam == WMSZ_TOPRIGHT) {
+                    rect->right = rect->left + newClientW + borderW;
+                } else {
+                    rect->left = rect->right - newClientW - borderW;
+                }
+            }
+            return TRUE;
+        }
+
         case WM_ERASEBKGND: 
             return 1; // KUNCI TRANSPARANSI
 
@@ -141,9 +188,13 @@ LRESULT CALLBACK Overlay::WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
             DeleteObject(hFont);
 
             // 2. Gambar Grid Hijau (Hanya digambar jika jendela tidak terlalu kecil)
-            if (gridW > 0 && gridH > 0) {
-                double cellW = (double)gridW / 8.0;
-                double cellH = (double)gridH / 8.0;
+            if (gridW >= 64 && gridH >= 64) {
+                // Samakan metode perhitungan persis dengan Python (integer division / pembulatan)
+                // Agar garis hijau di layar 100% kongruen dengan potongan kotak yang dianalisa!
+                int safeW = (gridW / 8) * 8;
+                int safeH = (gridH / 8) * 8;
+                int cellW = safeW / 8;
+                int cellH = safeH / 8;
 
                 HPEN hPen = CreatePen(PS_SOLID, 1, RGB(0, 255, 0));
                 SelectObject(hdc, hPen);
@@ -152,6 +203,7 @@ LRESULT CALLBACK Overlay::WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
                 // Gunakan NONANTIALIASED_QUALITY agar tidak ada efek blur putih dari colorkey background transparan
                 int fontSize = (int)(cellH * 0.6); // Ukuran font proporsional 60% dari tinggi kotak
+                if (fontSize < 8) fontSize = 8; // Pengaman agar font tidak terlalu kecil (crash point)
                 HFONT hPieceFont = CreateFont(fontSize, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, ANSI_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, NONANTIALIASED_QUALITY, DEFAULT_PITCH | FF_SWISS, "Arial");
                 HFONT hOldFont2 = (HFONT)SelectObject(hdc, hPieceFont);
                 
@@ -159,11 +211,11 @@ LRESULT CALLBACK Overlay::WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
                 for(int i = 0; i < 8; i++) {
                     for(int j = 0; j < 8; j++) {
-                        // Kalkulasi posisi x dan y ditambah padding
-                        int x = padding + (int)(cellW * j);
-                        int y = padding + (int)(cellH * i);
-                        int nextX = padding + (int)(cellW * (j + 1));
-                        int nextY = padding + (int)(cellH * (i + 1));
+                        // Kalkulasi posisi x dan y ditambah padding (tanpa desimal/double)
+                        int x = padding + (cellW * j);
+                        int y = padding + (cellH * i);
+                        int nextX = padding + (cellW * (j + 1));
+                        int nextY = padding + (cellH * (i + 1));
                         
                         // Ubah kembali Ellipse menjadi Rectangle
                         Rectangle(hdc, x, y, nextX, nextY);

@@ -17,29 +17,38 @@ def get_cell(img, row, col):
     return img[y1:y1 + (img.shape[0] // 8), x1:x1 + (img.shape[1] // 8)]
 
 def preprocess(cell):
+    # 1. Resize dulu ke ukuran standar (64x64)
     gray = cv2.cvtColor(cell, cv2.COLOR_BGR2GRAY)
     gray = cv2.resize(gray, (64, 64))
+    
+    # 2. Buat rontgen/kerangka garis putih
     edges = cv2.Canny(gray, 40, 120)
     
-    # PERUBAHAN: Sekarang kita kembalikan KEDUA gambarnya (gray asli & edges)
-    return gray, edges 
-
-def is_empty(cell_edges):
-    return cv2.countNonZero(cell_edges) < 30
-
-# =========================
-# LOGIKA DETEKSI WARNA (BARU)
-# =========================
-def get_piece_color(gray_64):
-    # Ambil potongan tepat di area tengah bidak (ukuran 24x24 piksel)
-    # Ini untuk menghindari warna latar belakang kotak (hijau/coklat)
-    center_crop = gray_64[20:44, 20:44]
+    # =======================================================
+    # LOGIKA BARU SESUAI IDE KAMU: FOKUS RADIUS TENGAH!
+    # Kita buang 12 piksel dari atas, bawah, kiri, dan kanan.
+    # Gambar sekarang menyusut jadi 40x40 piksel (HANYA AREA TENGAH).
+    # =======================================================
+    gray_center = gray[12:52, 12:52]
+    edges_center = edges[12:52, 12:52]
     
-    # Hitung jumlah piksel gelap (hitam) dan terang (putih)
-    dark_pixels = np.sum(center_crop < 80)
-    light_pixels = np.sum(center_crop > 175)
+    return gray_center, edges_center 
+
+def is_empty(gray_center, edges_center):
+    # Karena area gambarnya mengecil, threshold kita turunkan drastis
+    if cv2.countNonZero(edges_center) < 15:
+        return True
+        
+    if np.std(gray_center) < 15: 
+        return True
+        
+    return False
+
+def get_piece_color(gray_center):
+    # Karena ukuran gambar sekarang 40x40, kita hitung langsung dari keseluruhan area tengah ini
+    dark_pixels = np.sum(gray_center < 80)
+    light_pixels = np.sum(gray_center > 175)
     
-    # Jika piksel terang lebih banyak, berarti itu bidak Putih
     if light_pixels > dark_pixels:
         return "WHITE"
     else:
@@ -59,14 +68,13 @@ def build_templates(img):
         if label != ".":
             r, c = i // 8, i % 8
             cell = get_cell(img, r, c)
-            gray, edges = preprocess(cell) # Sesuaikan return value
+            gray, edges = preprocess(cell)
             
-            # Kita menggunakan .upper() agar template yang disimpan 
-            # murni hanya mewakili BENTUK saja (tanpa peduli warna)
             shape_label = label.upper() 
             
             if shape_label not in templates_dict:
                 templates_dict[shape_label] = edges
+                # Simpan agar kamu bisa lihat ukuran barunya yang fokus di tengah
                 cv2.imwrite(os.path.join(DEBUG_DIR, f"{shape_label}.png"), edges)
 
     np.savez(TEMPLATE_CACHE, **templates_dict)
@@ -108,22 +116,22 @@ board = []
 for r in range(8):
     for c in range(8):
         cell = get_cell(img, r, c)
-        gray, edges = preprocess(cell) # Sesuaikan return value
+        gray, edges = preprocess(cell)
 
-        if is_empty(edges):
+        if is_empty(gray, edges):
             board.append(".")
             continue
 
-        # 1. Deteksi BENTUK (Apakah ini Pion, Kuda, atau Raja?)
         shape, score = match(edges, templates)
 
-        if score < 0.35: 
+        # =======================================================
+        # PERMINTAAN USER: "Pokoknya ada kemiripan sedikit aja udah deteksi"
+        # Threshold kita banting jadi 0.20 (sangat rendah/toleran).
+        # =======================================================
+        if score < 0.20: 
             board.append(".")
         else:
-            # 2. Deteksi WARNA (Cek kecerahan di tengah gambar asli)
             color = get_piece_color(gray)
-            
-            # 3. Format FEN: Huruf BESAR untuk Putih, huruf kecil untuk Hitam
             if color == "WHITE":
                 final_label = shape.upper()
             else:

@@ -53,8 +53,11 @@ Thumbs.db
 # OPTIONAL: templates (kalau mau tetap disimpan, HAPUS ini)
 # =========================
 # templates/
-
-
+template_mapping.json
+board.json
+templates_debug/
+templates_cache.npz
+frame.png
 # =========================
 # VIRTUAL ENVIRONMENT
 # =========================

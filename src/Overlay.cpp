@@ -1,42 +1,155 @@
 #include "Overlay.h"
+#include <map>
 
-Overlay::Overlay() : hwnd(NULL) {}
-Overlay::~Overlay() { if (hwnd) DestroyWindow(hwnd); }
+Overlay* g_overlay = nullptr;
+
+Overlay::Overlay() { 
+    g_overlay = this; 
+    for(int i = 0; i < 64; i++) boardState[i] = "."; 
+}
+
+Overlay::~Overlay() { 
+    if (hwnd) DestroyWindow(hwnd); 
+}
+
+void Overlay::showContextMenu(HWND hwnd, int x, int y) {
+    HMENU hMenu = CreatePopupMenu();
+    HMENU hWhite = CreatePopupMenu();
+    HMENU hBlack = CreatePopupMenu();
+
+    AppendMenu(hMenu, MF_STRING, ID_EMPTY, "Kosongkan Kotak");
+    AppendMenu(hMenu, MF_SEPARATOR, 0, NULL);
+
+    AppendMenu(hWhite, MF_STRING, ID_WP, "Pion (P)"); 
+    AppendMenu(hWhite, MF_STRING, ID_WN, "Kuda (N)");
+    AppendMenu(hWhite, MF_STRING, ID_WB, "Gajah (B)"); 
+    AppendMenu(hWhite, MF_STRING, ID_WR, "Benteng (R)");
+    AppendMenu(hWhite, MF_STRING, ID_WQ, "Ster (Q)"); 
+    AppendMenu(hWhite, MF_STRING, ID_WK, "Raja (K)");
+    AppendMenu(hMenu, MF_POPUP, (UINT_PTR)hWhite, "Pasang Putih");
+
+    AppendMenu(hBlack, MF_STRING, ID_BP, "pion (p)"); 
+    AppendMenu(hBlack, MF_STRING, ID_BN, "kuda (n)");
+    AppendMenu(hBlack, MF_STRING, ID_BB, "gajah (b)"); 
+    AppendMenu(hBlack, MF_STRING, ID_BR, "benteng (r)");
+    AppendMenu(hBlack, MF_STRING, ID_BQ, "ster (q)"); 
+    AppendMenu(hBlack, MF_STRING, ID_BK, "raja (k)");
+    AppendMenu(hMenu, MF_POPUP, (UINT_PTR)hBlack, "Pasang Hitam");
+
+    POINT pt = { x, y };
+    ClientToScreen(hwnd, &pt);
+    TrackPopupMenu(hMenu, TPM_RIGHTBUTTON, pt.x, pt.y, 0, hwnd, NULL);
+    DestroyMenu(hWhite); 
+    DestroyMenu(hBlack); 
+    DestroyMenu(hMenu);
+}
 
 LRESULT CALLBACK Overlay::WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
     switch (uMsg) {
+        case WM_ERASEBKGND: 
+            return 1; // KUNCI TRANSPARANSI
+
+        case WM_RBUTTONDOWN: {
+            int x = LOWORD(lParam); 
+            int y = HIWORD(lParam);
+            RECT r; 
+            GetClientRect(hwnd, &r);
+            if (r.right > 0 && r.bottom > 0) {
+                int col = x / (r.right / 8);
+                int row = y / (r.bottom / 8);
+                g_overlay->lastClickedIndex = (row * 8) + col;
+                g_overlay->showContextMenu(hwnd, x, y);
+            }
+        } break;
+
+        case WM_COMMAND: {
+            int id = LOWORD(wParam);
+            int idx = g_overlay->lastClickedIndex;
+            if (idx >= 0 && idx < 64) {
+                std::map<int, std::string> pieces = {
+                    {ID_EMPTY, "."}, {ID_WP, "P"}, {ID_WN, "N"}, {ID_WB, "B"}, {ID_WR, "R"}, {ID_WQ, "Q"}, {ID_WK, "K"},
+                    {ID_BP, "p"}, {ID_BN, "n"}, {ID_BB, "b"}, {ID_BR, "r"}, {ID_BQ, "q"}, {ID_BK, "k"}
+                };
+                if (pieces.count(id)) g_overlay->boardState[idx] = pieces[id];
+                InvalidateRect(hwnd, NULL, TRUE);
+            }
+        } break;
+
         case WM_PAINT: {
             PAINTSTRUCT ps;
             HDC hdc = BeginPaint(hwnd, &ps);
+            RECT r; 
+            GetClientRect(hwnd, &r);
             
-            // GUNAKAN GetClientRect agar seluruh jendela ter-refresh, bukan cuma area sisa
-            RECT clientRect;
-            GetClientRect(hwnd, &clientRect);
-
-            // Bersihkan background dengan warna Magenta (Transparan)
+            // 1. Gambar Background Magenta (Warna Kunci Transparansi)
             HBRUSH hbr = CreateSolidBrush(RGB(255, 0, 255));
-            FillRect(hdc, &clientRect, hbr);
+            FillRect(hdc, &r, hbr);
             DeleteObject(hbr);
-            
-            // Gambar Border merah
-            HPEN hPen = CreatePen(PS_SOLID, 5, RGB(255, 0, 0));
+
+            // 2. Gambar Grid Hijau & Teks Bidak
+            HPEN hPen = CreatePen(PS_SOLID, 1, RGB(0, 255, 0));
             SelectObject(hdc, hPen);
-            SelectObject(hdc, GetStockObject(NULL_BRUSH));
-            Rectangle(hdc, 0, 0, clientRect.right, clientRect.bottom);
-            DeleteObject(hPen);
             
+            // --- TAMBAHKAN BARIS INI ---
+            // Gunakan brush kosong agar kotak grid tidak diisi warna putih bawaan Windows
+            SelectObject(hdc, GetStockObject(HOLLOW_BRUSH)); 
+            // ---------------------------
+
+            SetBkMode(hdc, TRANSPARENT);
+            SetTextColor(hdc, RGB(255, 255, 255));
+
+            for(int i = 0; i < 8; i++) {
+                for(int j = 0; j < 8; j++) {
+                    int x = (r.right / 8) * j;
+                    int y = (r.bottom / 8) * i;
+                    Rectangle(hdc, x, y, x + (r.right / 8), y + (r.bottom / 8));
+                    
+                    std::string p = g_overlay->boardState[i * 8 + j];
+                    if (p != ".") {
+                        TextOutA(hdc, x + 15, y + 10, p.c_str(), (int)p.length());
+                    }
+                }
+            }
+            DeleteObject(hPen);
             EndPaint(hwnd, &ps);
         } break;
+        
+        case WM_SIZE: InvalidateRect(hwnd, NULL, TRUE); break;
+        case WM_DESTROY: PostQuitMessage(0); break;
 
-        // --- TAMBAHKAN INI: Paksa gambar ulang saat di-resize ---
-        case WM_SIZE: {
-            InvalidateRect(hwnd, NULL, TRUE);
+        case WM_NCHITTEST: {
+            // Ambil koordinat mouse dari lParam (koordinat layar penuh)
+            // Di-cast ke (short) agar tetap aman jika kamu pakai lebih dari 1 monitor (koordinat bisa negatif)
+            int x = (short)LOWORD(lParam);
+            int y = (short)HIWORD(lParam);
+
+            // Dapatkan dimensi jendela saat ini
+            RECT rect;
+            GetWindowRect(hwnd, &rect);
+
+            // Tentukan margin/ketebalan area hover (dalam piksel). 
+            // Angka 15 cukup lebar agar gampang di-hover tanpa harus presisi.
+            const int margin = 15; 
+
+            bool onLeft = (x >= rect.left && x < rect.left + margin);
+            bool onRight = (x < rect.right && x >= rect.right - margin);
+            bool onTop = (y >= rect.top && y < rect.top + margin);
+            bool onBottom = (y < rect.bottom && y >= rect.bottom - margin);
+
+            // Beri tahu Windows bagian mana yang sedang di-hover agar kursor otomatis berubah
+            if (onTop && onLeft) return HTTOPLEFT;
+            if (onTop && onRight) return HTTOPRIGHT;
+            if (onBottom && onLeft) return HTBOTTOMLEFT;
+            if (onBottom && onRight) return HTBOTTOMRIGHT;
+            if (onTop) return HTTOP;
+            if (onBottom) return HTBOTTOM;
+            if (onLeft) return HTLEFT;
+            if (onRight) return HTRIGHT;
+
+            // Jika mouse tidak berada di margin buatan kita, biarkan Windows menanganinya seperti biasa
+            return DefWindowProc(hwnd, uMsg, wParam, lParam);
         } break;
 
-        case WM_ERASEBKGND:
-            return 1; // Beritahu Windows kita urus sendiri hapus background-nya
-
-        case WM_DESTROY: PostQuitMessage(0); break;
         default: return DefWindowProc(hwnd, uMsg, wParam, lParam);
     }
     return 0;
@@ -44,26 +157,28 @@ LRESULT CALLBACK Overlay::WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
 
 void Overlay::start(const std::string& title, int w, int h) {
     WNDCLASS wc = { 0 };
-    // --- TAMBAHKAN STYLE INI: Penting agar tidak berbayang ---
-    wc.style = CS_HREDRAW | CS_VREDRAW; 
+    wc.style = CS_HREDRAW | CS_VREDRAW;
     wc.lpfnWndProc = WindowProc;
     wc.hInstance = GetModuleHandle(NULL);
     wc.lpszClassName = "ChessOverlayFrame";
     wc.hCursor = LoadCursor(NULL, IDC_SIZEALL);
+    wc.hbrBackground = NULL; 
     RegisterClass(&wc);
 
-    // ... sisa kode CreateWindowEx tetap sama ...
     hwnd = CreateWindowEx(
-        WS_EX_TOPMOST | WS_EX_LAYERED,
-        wc.lpszClassName, title.c_str(),
-        WS_OVERLAPPEDWINDOW,
-        CW_USEDEFAULT, CW_USEDEFAULT, w, h,
+        WS_EX_TOPMOST | WS_EX_LAYERED, 
+        wc.lpszClassName, 
+        title.c_str(), 
+        WS_OVERLAPPEDWINDOW, 
+        CW_USEDEFAULT, CW_USEDEFAULT, w, h, 
         NULL, NULL, wc.hInstance, NULL
     );
 
+    // Kunci Transparansi
     SetLayeredWindowAttributes(hwnd, RGB(255, 0, 255), 0, LWA_COLORKEY);
-    ShowWindow(hwnd, SW_SHOW);
     
+    ShowWindow(hwnd, SW_SHOW);
+    UpdateWindow(hwnd); 
     isReady = true;
     
     MSG msg;
@@ -71,14 +186,4 @@ void Overlay::start(const std::string& title, int w, int h) {
         TranslateMessage(&msg);
         DispatchMessage(&msg);
     }
-}
-
-RECT Overlay::getFrameRect() {
-    RECT rect = {0};
-    if (hwnd) {
-        GetWindowRect(hwnd, &rect);
-        rect.left += 8; rect.top += 31; // Penyesuaian border standar Windows
-        rect.right -= 8; rect.bottom -= 8;
-    }
-    return rect;
 }

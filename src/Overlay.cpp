@@ -348,14 +348,6 @@ void Overlay::start(const std::string& title, int w, int h) {
         NULL
     );
 
-    // --- TAMBAHKAN KODE INI ---
-    // Sembunyikan jendela overlay dari tangkapan layar (BitBlt)!
-    #ifndef WDA_EXCLUDEFROMCAPTURE
-    #define WDA_EXCLUDEFROMCAPTURE 0x00000011
-    #endif
-    SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE);
-    // --------------------------
-
     // Kunci Transparansi
     SetLayeredWindowAttributes(hwnd, RGB(255, 0, 255), 0, LWA_COLORKEY);
 

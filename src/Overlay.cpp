@@ -54,11 +54,31 @@ LRESULT CALLBACK Overlay::WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
             int y = HIWORD(lParam);
             RECT r; 
             GetClientRect(hwnd, &r);
-            if (r.right > 0 && r.bottom > 0) {
-                int col = x / (r.right / 8);
-                int row = y / (r.bottom / 8);
-                g_overlay->lastClickedIndex = (row * 8) + col;
-                g_overlay->showContextMenu(hwnd, x, y);
+            
+            // Tentukan jarak pinggir yang sama dengan yang digambar
+            int padding = 20; 
+            int gridW = r.right - (2 * padding);
+            int gridH = r.bottom - (2 * padding);
+
+            // Cek apakah klik berada tepat di dalam area grid (bukan di area kosong pinggiran)
+            if (x >= padding && x <= r.right - padding && 
+                y >= padding && y <= r.bottom - padding) {
+                
+                int cellW = gridW / 8;
+                int cellH = gridH / 8;
+
+                if (cellW > 0 && cellH > 0) {
+                    // Kurangi koordinat x dan y dengan padding agar kalkulasi index tepat
+                    int col = (x - padding) / cellW;
+                    int row = (y - padding) / cellH;
+                    
+                    // Pastikan batas array aman
+                    if (col > 7) col = 7;
+                    if (row > 7) row = 7;
+
+                    g_overlay->lastClickedIndex = (row * 8) + col;
+                    g_overlay->showContextMenu(hwnd, x, y);
+                }
             }
         } break;
 
@@ -81,36 +101,51 @@ LRESULT CALLBACK Overlay::WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
             RECT r; 
             GetClientRect(hwnd, &r);
             
-            // 1. Gambar Background Magenta (Warna Kunci Transparansi)
+            // 1. Gambar Background Magenta
             HBRUSH hbr = CreateSolidBrush(RGB(255, 0, 255));
             FillRect(hdc, &r, hbr);
             DeleteObject(hbr);
 
-            // 2. Gambar Grid Hijau & Teks Bidak
-            HPEN hPen = CreatePen(PS_SOLID, 1, RGB(0, 255, 0));
-            SelectObject(hdc, hPen);
-            
-            // --- TAMBAHKAN BARIS INI ---
-            // Gunakan brush kosong agar kotak grid tidak diisi warna putih bawaan Windows
-            SelectObject(hdc, GetStockObject(HOLLOW_BRUSH)); 
-            // ---------------------------
+            // --- DEKLARASI PADDING ---
+            int padding = 20; // 20 piksel jarak dari batas aplikasi ke grid catur
+            int gridW = r.right - (2 * padding);
+            int gridH = r.bottom - (2 * padding);
 
-            SetBkMode(hdc, TRANSPARENT);
-            SetTextColor(hdc, RGB(255, 255, 255));
+            // 2. Gambar Grid Hijau (Hanya digambar jika jendela tidak terlalu kecil)
+            if (gridW > 0 && gridH > 0) {
+                int cellW = gridW / 8;
+                int cellH = gridH / 8;
 
-            for(int i = 0; i < 8; i++) {
-                for(int j = 0; j < 8; j++) {
-                    int x = (r.right / 8) * j;
-                    int y = (r.bottom / 8) * i;
-                    Rectangle(hdc, x, y, x + (r.right / 8), y + (r.bottom / 8));
-                    
-                    std::string p = g_overlay->boardState[i * 8 + j];
-                    if (p != ".") {
-                        TextOutA(hdc, x + 15, y + 10, p.c_str(), (int)p.length());
+                HPEN hPen = CreatePen(PS_SOLID, 1, RGB(0, 255, 0));
+                SelectObject(hdc, hPen);
+                SelectObject(hdc, GetStockObject(HOLLOW_BRUSH)); 
+                SetBkMode(hdc, TRANSPARENT);
+                SetTextColor(hdc, RGB(255, 255, 255));
+
+                for(int i = 0; i < 8; i++) {
+                    for(int j = 0; j < 8; j++) {
+                        // Kalkulasi posisi x dan y ditambah padding
+                        int x = padding + (cellW * j);
+                        int y = padding + (cellH * i);
+                        Rectangle(hdc, x, y, x + cellW, y + cellH);
+                        
+                        std::string p = g_overlay->boardState[i * 8 + j];
+                        if (p != ".") {
+                            TextOutA(hdc, x + 15, y + 10, p.c_str(), (int)p.length());
+                        }
                     }
                 }
+                DeleteObject(hPen);
             }
-            DeleteObject(hPen);
+
+            // 3. Bingkai Resizer (Tidak Terlihat) di ujung jendela
+            // Karena grid ditarik ke dalam sejauh 20px, bingkai 15px ini tidak akan bertabrakan dengan grid hijau.
+            HPEN hEdgePen = CreatePen(PS_INSIDEFRAME, 15, RGB(1, 1, 1)); 
+            SelectObject(hdc, hEdgePen);
+            SelectObject(hdc, GetStockObject(HOLLOW_BRUSH)); 
+            Rectangle(hdc, 0, 0, r.right, r.bottom);
+            DeleteObject(hEdgePen);
+
             EndPaint(hwnd, &ps);
         } break;
         

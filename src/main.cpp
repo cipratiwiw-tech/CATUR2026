@@ -225,6 +225,10 @@ int main() {
     std::thread t([&]() { frame.start("EDITOR BIDAK CATUR", 450, 450); });
     t.detach();
 
+    // TAMBAHAN: Jalankan Python di background saat aplikasi baru dibuka
+    std::thread py_thread([]() { system(".venv\\Scripts\\python run_vision.py"); });
+    py_thread.detach();
+
     while (!frame.isReady) { Sleep(10); }
 
     ScreenCapture capture;
@@ -485,16 +489,16 @@ int main() {
         // Hanya update logika FEN jika mode Analyze AKTIF
         if (frame.isAnalyzing) {
             if (!boardImage.empty()) {
-                // 1. Save image ke file
+                // 1. Save image ke file (Ini otomatis memicu Python yang sedang standby)
                 cv::imwrite("frame.png", boardImage);
 
-                // 2. Panggil Python (blocking dulu, nanti kita async)
-                system(".venv\\Scripts\\python detect.py");
+                // BERI JEDA SEDIKIT agar Python punya waktu membaca dan menulis JSON
+                Sleep(200); 
 
-                // 3. Load hasil dari Python
+                // 2. Load hasil dari Python
                 std::vector<std::string> board = loadBoardFromJson("board.json");
 
-                // 4. Update state
+                // 3. Update state
                 for (int i = 0; i < 64; i++) {
                     frame.boardState[i] = board[i];
                 }

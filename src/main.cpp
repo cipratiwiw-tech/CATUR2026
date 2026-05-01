@@ -3,6 +3,9 @@
 #include "ScreenCapture.h"
 
 int main() {
+    // Tambahkan baris ini untuk mematikan log INFO yang berisik
+    cv::utils::logging::setLogLevel(cv::utils::logging::LOG_LEVEL_ERROR);
+
     ScreenCapture capturer;
     RECT rect;
 

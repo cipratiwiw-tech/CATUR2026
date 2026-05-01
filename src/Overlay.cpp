@@ -93,6 +93,12 @@ LRESULT CALLBACK Overlay::WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
                 if (pieces.count(id)) g_overlay->boardState[idx] = pieces[id];
                 InvalidateRect(hwnd, NULL, TRUE);
             }
+            
+            // Tangkap klik tombol "Start Analyze" dari Menu Bar
+            if (id == 9002) {
+                g_overlay->isAnalyzing = !g_overlay->isAnalyzing; // Aktifkan/Matikan mode
+                InvalidateRect(hwnd, NULL, TRUE);
+            }
         } break;
 
         case WM_PAINT: {
@@ -110,6 +116,19 @@ LRESULT CALLBACK Overlay::WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
             int padding = 20; // 20 piksel jarak dari batas aplikasi ke grid catur
             int gridW = r.right - (2 * padding);
             int gridH = r.bottom - (2 * padding);
+
+            // --- GAMBAR INSTRUKSI & FEN DI JENDELA ---
+            SetBkMode(hdc, TRANSPARENT);
+            SetTextColor(hdc, RGB(255, 255, 0)); // Warna teks kuning agar kontras
+            std::string infoText = g_overlay->isAnalyzing 
+                ? "Analisa AKTIF | FEN: " + g_overlay->currentFEN 
+                : "1. Paskan grid | 2. Klik Kanan = Pasang Bidak | 3. Menu -> Start Analyze";
+            
+            RECT textRect = { 5, 2, r.right - 5, padding };
+            HFONT hFont = CreateFont(16, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, ANSI_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH | FF_SWISS, "Arial");
+            SelectObject(hdc, hFont);
+            DrawTextA(hdc, infoText.c_str(), -1, &textRect, DT_LEFT | DT_NOPREFIX | DT_SINGLELINE | DT_VCENTER);
+            DeleteObject(hFont);
 
             // 2. Gambar Grid Hijau (Hanya digambar jika jendela tidak terlalu kecil)
             if (gridW > 0 && gridH > 0) {

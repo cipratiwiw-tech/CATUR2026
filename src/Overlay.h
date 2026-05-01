@@ -18,12 +18,14 @@ public:
     void start(const std::string& title, int w, int h);
     RECT getFrameRect();
     std::atomic<bool> isReady{ false };
+    std::atomic<bool> isAnalyzing{ false }; // Penanda tombol diklik
+    std::string currentFEN = ""; // Menyimpan teks FEN untuk digambar
     
     std::string boardState[64]; // Menyimpan karakter FEN[cite: 11]
     int lastClickedIndex = -1;
+    HWND hwnd;
 
 private:
-    HWND hwnd;
     static LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
     void showContextMenu(HWND hwnd, int x, int y);
 };

@@ -5,9 +5,18 @@
 #include <string>
 #include <vector>
 #include <map>
+#include <filesystem>
 #include "Overlay.h"
 #include "ScreenCapture.h"
 #include "Vision.h"
+
+namespace fs = std::filesystem;
+
+// Struktur penyimpan gambar referensi bidak
+struct PieceTemplate {
+    std::string piece;
+    cv::Mat img;
+};
 
 // Struktur dan fungsi Callback untuk Mouse di Jendela Popup
 struct MouseCallbackData {
@@ -109,14 +118,9 @@ int main() {
     ScreenCapture capture;
     Vision vision;
 
-    // TODO: Siapkan dan muat gambar template bidak catur Anda ke dalam map ini.
-    // Kamu butuh potongan gambar .png dari masing-masing bidak untuk dicocokkan.
-    // Contoh:
-    // std::map<std::string, cv::Mat> pieceTemplates;
-    // pieceTemplates["P"] = cv::imread("templates/white_pawn.png", cv::IMREAD_COLOR);
-    // pieceTemplates["p"] = cv::imread("templates/black_pawn.png", cv::IMREAD_COLOR);
-    // ...
-
+    std::vector<PieceTemplate> templates;
+    bool templatesLoaded = false;
+    
     while (true) {
         // Jika menu belum diklik, aplikasi cukup "tidur" dan cek kembali
         if (!frame.isAnalyzing && !frame.showPieceSelector) {
@@ -291,23 +295,64 @@ int main() {
                 try { cv::destroyWindow("Screenshot Area Grid"); } catch (...) {}
                 
                 frame.showPieceSelector = false; // Reset status penanda
+                templatesLoaded = false; // Minta aplikasi memuat ulang (reload) template baru setelah pilih bidak
             }
 
             // 4. Analisa masing-masing kotak (Kode pencocokan template bidak)
+            if (frame.isAnalyzing) {
+                // Muat semua template dari folder HANYA jika belum dimuat atau baru saja diupdate
+                if (!templatesLoaded) {
+                    templates.clear();
+                    if (fs::exists("templates")) {
+                        for (const auto& entry : fs::directory_iterator("templates")) {
+                            if (entry.path().extension() == ".png") {
+                                std::string filename = entry.path().stem().string(); // Contoh: "P_1"
+                                std::string piece = filename.substr(0, 1);           // Ambil huruf pertamanya: "P"
+                                cv::Mat img = cv::imread(entry.path().string(), cv::IMREAD_COLOR);
+                                if (!img.empty()) templates.push_back({piece, img});
+                            }
+                        }
+                    }
+                    templatesLoaded = true;
+                }
 
-            /*
-            for (int i = 0; i < 64; i++) {
-                cv::Mat squareImg = boardImage(grid[i].area);
-                std::string detectedPiece = ".";
-                
-                // Loop melalui `pieceTemplates` dan periksa tiap template.
-                // Gunakan fungsi vision.findTemplate(squareImg, templateImg).
-                // Jika template cocok dan skor melebihi batas, perbarui `detectedPiece`.
-                
-                frame.boardState[i] = detectedPiece; // Update papan state
+                // Jalankan deteksi jika kita punya setidaknya 1 template untuk dibandingkan
+                if (!templates.empty()) {
+                    for (int i = 0; i < 64; i++) {
+                        cv::Mat squareImg = boardImage(grid[i].area);
+                        
+                        // Konversi dari BGRA ke BGR untuk mencocokkan dengan format template (3 Channel)
+                        cv::Mat squareImgBGR;
+                        if (squareImg.channels() == 4) {
+                            cv::cvtColor(squareImg, squareImgBGR, cv::COLOR_BGRA2BGR);
+                        } else {
+                            squareImgBGR = squareImg;
+                        }
+
+                        std::string detectedPiece = ".";
+                        double bestScore = 0.60; // Skor minimal (60%) agar tidak mendeteksi sembarangan
+
+                        for (const auto& t : templates) {
+                            cv::Mat resizedSquare;
+                            // Samakan ukuran jaga-jaga jika kamu tidak sengaja me-resize jendela
+                            if (squareImgBGR.size() != t.img.size()) cv::resize(squareImgBGR, resizedSquare, t.img.size());
+                            else resizedSquare = squareImgBGR;
+
+                            cv::Mat result;
+                            cv::matchTemplate(resizedSquare, t.img, result, cv::TM_CCOEFF_NORMED);
+                            double minVal, maxVal;
+                            cv::minMaxLoc(result, &minVal, &maxVal);
+
+                            if (maxVal > bestScore) {
+                                bestScore = maxVal;
+                                detectedPiece = t.piece;
+                            }
+                        }
+                        if (detectedPiece == "E") detectedPiece = "."; // Jadikan kotak kosong jika "Empty" menang
+                        frame.boardState[i] = detectedPiece; // Update papan state
+                    }
+                }
             }
-            InvalidateRect(frame.hwnd, NULL, TRUE); // Refresh render overlay
-            */
         }
 
         // Hanya update logika FEN jika mode Analyze AKTIF

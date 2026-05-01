@@ -1,55 +1,64 @@
 #define NOMINMAX
 #include <windows.h>
 #include <iostream>
+#include <thread>
 #include <opencv2/opencv.hpp>
-#include <opencv2/core/utils/logger.hpp>
+#include "Overlay.h"
 #include "ScreenCapture.h"
 #include "Vision.h"
 
+// Fungsi ini sekarang yang bertanggung jawab membuat DAN menjalankan jendela
+void overlayWorker(Overlay* frame) {
+    frame->start("SERET KE PAPAN CATUR", 450, 450);
+}
+
 int main() {
-    // --- 1. SAKLAR DPI AWARENESS (PENTING!) ---
-    // Ini agar bot bisa melihat ukuran jendela Chrome yang sebenarnya (Piksel Asli)
     SetProcessDPIAware();
-
-    cv::utils::logging::setLogLevel(cv::utils::logging::LOG_LEVEL_ERROR);
-
+    
+    Overlay frame;
     ScreenCapture capturer;
-    RECT rect;
+    Vision vision;
 
-    std::cout << "Mencari jendela browser..." << std::endl;
+    // Jalankan thread jendela
+    std::thread t(overlayWorker, &frame);
+    t.detach();
 
-    // Setiap kali run, fungsi ini akan mencari ulang jendela & ukurannya
-    if (capturer.findWindowRect("Chess", rect)) {
+    // Tunggu sampai jendela benar-benar muncul sebelum lanjut
+    while (!frame.isReady) { Sleep(10); }
+
+    std::cout << "===========================================" << std::endl;
+    std::cout << "      CHESS BOT MANUAL OVERLAY MODE        " << std::endl;
+    std::cout << "===========================================" << std::endl;
+    std::cout << "1. Geser & Resize kotak merah ke papan catur" << std::endl;
+    std::cout << "2. Tekan ENTER di sini untuk SCAN..." << std::endl;
+
+    while (true) {
+        std::string dummy;
+        std::getline(std::cin, dummy); 
+
+        RECT target = frame.getFrameRect();
+        int w = target.right - target.left;
+        int h = target.bottom - target.top;
+
+        if (w <= 0 || h <= 0) continue;
+
+        cv::Mat boardImg = capturer.captureRegion(target.left, target.top, w, h);
         
-        // Hitung lebar dan tinggi SECARA DINAMIS
-        int width = rect.right - rect.left;
-        int height = rect.bottom - rect.top;
-
-        // Cetak ke terminal biar kamu bisa pantau
-        std::cout << "--- DETEKSI ULANG BERHASIL ---" << std::endl;
-        std::cout << "Lebar: " << width << " px" << std::endl;
-        std::cout << "Tinggi: " << height << " px" << std::endl;
-        std::cout << "------------------------------" << std::endl;
-
-        // Ambil jepretan sesuai ukuran yang baru saja dideteksi
-        cv::Mat browserImg = capturer.captureRegion(rect.left, rect.top, width, height);
-
-        if (!browserImg.empty()) {
-            // Ubah ke BGR (3 channel) agar bisa diproses OpenCV
-            cv::cvtColor(browserImg, browserImg, cv::COLOR_BGRA2BGR);
+        if (!boardImg.empty()) {
+            cv::cvtColor(boardImg, boardImg, cv::COLOR_BGRA2BGR);
             
-            // Simpan dan beri tahu lokasi filenya
-            cv::imwrite("hasil_browser.jpg", browserImg);
-            
-            std::cout << "Foto disimpan! Silakan cek hasil_browser.jpg" << std::endl;
-            
-            cv::imshow("Monitor Bot (Tekan apa saja untuk tutup)", browserImg);
-            cv::waitKey(0);
-            cv::destroyAllWindows();
+            int boardSize = std::min(w, h);
+            // Gunakan titik 0,0 karena kita sudah memotong tepat di area papan[cite: 6]
+            std::vector<ChessSquare> grid = vision.createGrid(cv::Point(0,0), boardSize);
+
+            for (const auto& sq : grid) {
+                cv::rectangle(boardImg, sq.area, cv::Scalar(0, 255, 0), 1);
+            }
+
+            cv::imshow("HASIL SCAN", boardImg);
+            cv::waitKey(1); 
+            std::cout << "Scan Berhasil di " << w << "x" << h << " px! Tekan ENTER lagi..." << std::endl;
         }
-    } else {
-        std::cout << "Jendela 'Chess' tidak ditemukan! Pastikan Chrome sudah terbuka." << std::endl;
     }
-
     return 0;
 }

@@ -31,7 +31,7 @@ int main() {
 
     while (true) {
         // Jika menu belum diklik, aplikasi cukup "tidur" dan cek kembali
-        if (!frame.isAnalyzing) {
+        if (!frame.isAnalyzing && !frame.showPieceSelector) {
             Sleep(100);
             continue;
         }
@@ -56,6 +56,32 @@ int main() {
             // 2. Ambil screenshot murni dari area papan catur yang ditargetkan
             cv::Mat boardImage = capture.captureRegion(topLeft.x, topLeft.y, width, height);
             
+            // Tampilkan POPUP SCREENSHOT jika menu Pilih Bidak diklik
+            if (frame.showPieceSelector) {
+                // Buat jendelanya terlebih dahulu secara eksplisit
+                cv::namedWindow("Screenshot Area Grid", cv::WINDOW_AUTOSIZE);
+                cv::setWindowProperty("Screenshot Area Grid", cv::WND_PROP_TOPMOST, 1); // Memaksa OpenCV merender di paling depan
+                
+                // Kunci (disable) jendela utama agar tidak bisa diklik
+                EnableWindow(frame.hwnd, FALSE);
+
+                // Memastikan popup bertindak sebagai dialog (anak) dari jendela utama Overlay
+                HWND popupHwnd = FindWindowA(NULL, "Screenshot Area Grid");
+                if (popupHwnd) {
+                    SetWindowLongPtrA(popupHwnd, GWLP_HWNDPARENT, (LONG_PTR)frame.hwnd);
+                }
+                
+                cv::imshow("Screenshot Area Grid", boardImage);
+                cv::waitKey(0); // Tahan popup sampai user menekan sembarang tombol di keyboard
+                cv::destroyWindow("Screenshot Area Grid"); // Tutup jendela setelah ditekan
+                
+                // Buka kembali kunci jendela utama dan pastikan jendelanya aktif di depan
+                EnableWindow(frame.hwnd, TRUE);
+                SetForegroundWindow(frame.hwnd);
+                
+                frame.showPieceSelector = false; // Reset status penanda
+            }
+
             // 3. Bagi gambar ke dalam grid 8x8 kotak
             std::vector<ChessSquare> grid = vision.createGrid(cv::Point(0, 0), width);
 
@@ -75,30 +101,33 @@ int main() {
             */
         }
 
-        std::string fen = "";
-        for (int i = 0; i < 8; i++) {
-            int emptyCount = 0;
-            for (int j = 0; j < 8; j++) {
-                std::string p = frame.boardState[i * 8 + j];
-                if (p == ".") {
-                    emptyCount++;
-                } else {
-                    if (emptyCount > 0) { 
-                        fen += std::to_string(emptyCount); 
-                        emptyCount = 0; 
+        // Hanya update logika FEN jika mode Analyze AKTIF
+        if (frame.isAnalyzing) {
+            std::string fen = "";
+            for (int i = 0; i < 8; i++) {
+                int emptyCount = 0;
+                for (int j = 0; j < 8; j++) {
+                    std::string p = frame.boardState[i * 8 + j];
+                    if (p == ".") {
+                        emptyCount++;
+                    } else {
+                        if (emptyCount > 0) { 
+                            fen += std::to_string(emptyCount); 
+                            emptyCount = 0; 
+                        }
+                        fen += p;
                     }
-                    fen += p;
                 }
+                if (emptyCount > 0) fen += std::to_string(emptyCount);
+                if (i < 7) fen += "/";
             }
-            if (emptyCount > 0) fen += std::to_string(emptyCount);
-            if (i < 7) fen += "/";
+            
+            // 5. Update FEN ke Overlay UI agar tampil di jendela aplikasi
+            frame.currentFEN = fen + " w - - 0 1";
+            InvalidateRect(frame.hwnd, NULL, TRUE); // Refresh tampilan overlay
+            
+            Sleep(1000); // Jeda 1 detik agar screen capture tidak memberatkan performa laptop
         }
-        
-        // 5. Update FEN ke Overlay UI agar tampil di jendela aplikasi
-        frame.currentFEN = fen + " w - - 0 1";
-        InvalidateRect(frame.hwnd, NULL, TRUE); // Refresh tampilan overlay
-        
-        Sleep(1000); // Jeda 1 detik agar screen capture tidak memberatkan performa laptop
     }
     return 0;
 }

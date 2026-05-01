@@ -19,6 +19,7 @@ public:
     RECT getFrameRect();
     std::atomic<bool> isReady{ false };
     std::atomic<bool> isAnalyzing{ false }; // Penanda tombol diklik
+    std::atomic<bool> showPieceSelector{ false }; // Penanda tombol Pilih Bidak
     std::string currentFEN = ""; // Menyimpan teks FEN untuk digambar
     float currentEval = 0.0f; // Score evaluasi engine untuk Eval Bar (-10.0 sampai 10.0)
     

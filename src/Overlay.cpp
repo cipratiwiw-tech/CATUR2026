@@ -96,6 +96,11 @@ LRESULT CALLBACK Overlay::WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM
                 InvalidateRect(hwnd, NULL, TRUE);
             }
             
+            // Tangkap klik tombol "Pilih Bidak" dari Menu Bar
+        if (id == 9001) {
+            g_overlay->showPieceSelector = true;
+        }
+        
             // Tangkap klik tombol "Start Analyze" dari Menu Bar
             if (id == 9002) {
                 g_overlay->isAnalyzing = !g_overlay->isAnalyzing; // Aktifkan/Matikan mode

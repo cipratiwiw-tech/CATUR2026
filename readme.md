@@ -10,88 +10,18 @@ Chess Overlay Analyzer adalah aplikasi desktop berbasis overlay transparan yang 
 * Menampilkan evaluasi secara real-time
 * Menampilkan panah rekomendasi langkah langsung di atas papan
 
-Aplikasi berjalan sebagai **single executable (.exe)** tanpa perlu setup manual engine atau dependensi tambahan oleh user.
+Aplikasi berjalan sebagai **single executable (.exe)** tanpa setup tambahan.
 
 ---
 
-## Core Features
+## Key Features
 
-### 1. Transparent Overlay Frame
-
-* Window transparan (hanya border terlihat)
-* Bisa di-drag dan resize
-* Always-on-top
-* Digunakan untuk menentukan area papan catur (ROI)
-
-### 2. Real-time Board Recognition
-
-* Deteksi papan catur dari area yang dipilih
-* Identifikasi posisi bidak
-* Output dalam format FEN
-
-### 3. Stockfish Integration
-
-* Engine berjalan di background
-* Komunikasi via UCI protocol
-* Analisis posisi secara real-time
-
-### 4. Evaluation Bar (Vertical)
-
-* Terletak di sisi kanan overlay
-* Menampilkan keunggulan putih vs hitam
-* Update secara dinamis
-
-### 5. Move Arrow Overlay
-
-* Visualisasi langkah terbaik dari engine
-* Digambar langsung di atas papan
-* Real-time update
-
-### 6. One-Click Execution
-
-* User hanya menjalankan file `.exe`
-* Semua sistem (engine + vision + UI) sudah terintegrasi
-
----
-
-## System Architecture
-
-```
-+---------------------------+
-|        UI LAYER           |
-|---------------------------|
-| Overlay Frame             |
-| Evaluation Bar            |
-| Arrow Renderer            |
-+---------------------------+
-            |
-            v
-+---------------------------+
-|     APPLICATION CORE      |
-|---------------------------|
-| State Manager             |
-| Input Handler             |
-| Thread Controller         |
-+---------------------------+
-            |
-            v
-+---------------------------+
-|   PROCESSING MODULES      |
-|---------------------------|
-| Screen Capture            |
-| Board Recognition         |
-| FEN Generator             |
-+---------------------------+
-            |
-            v
-+---------------------------+
-|     ENGINE INTERFACE      |
-|---------------------------|
-| UCI Communication         |
-| Stockfish Process         |
-| Output Parser             |
-+---------------------------+
-```
+* Transparent overlay (drag & resize)
+* Real-time board recognition → FEN
+* Engine analysis (Stockfish, UCI)
+* Evaluation bar (vertical)
+* Best move arrow overlay
+* One-click run (.exe)
 
 ---
 
@@ -99,179 +29,52 @@ Aplikasi berjalan sebagai **single executable (.exe)** tanpa perlu setup manual 
 
 ### 1. Startup
 
-* User menjalankan file `.exe`
-* Aplikasi membuka overlay transparan
-
----
+* Jalankan `app.exe`
+* Overlay transparan muncul
 
 ### 2. Area Selection
 
-* User:
+* Drag & resize frame
+* Sesuaikan dengan papan catur di layar
 
-  * Drag overlay
-  * Resize frame
-* Tujuan:
+### 3. Start Analyze
 
-  * Menyesuaikan dengan papan catur di layar
-
----
-
-### 3. Start Analysis
-
-* User klik tombol **Start Analyze**
-* Sistem:
-
-  * Menginisialisasi Stockfish
-  * Mulai loop processing
-
----
+* Klik tombol **Start Analyze**
+* Engine + processing mulai
 
 ### 4. Realtime Loop
 
-Loop berjalan terus selama mode aktif:
+Loop berjalan terus:
 
-#### Step 1: Capture
+1. Capture ROI
+2. Detect board → generate FEN
+3. Kirim ke engine:
 
-* Ambil gambar dari area overlay (ROI)
+   ```
+   position fen <FEN>
+   go depth 15
+   ```
+4. Parse output:
 
-#### Step 2: Recognition
+   * score
+   * bestmove
+5. Update UI:
 
-* Deteksi grid 8x8
-* Identifikasi bidak
-* Generate FEN
-
-#### Step 3: Engine Analysis
-
-* Kirim ke engine:
-
-  ```
-  position fen <FEN>
-  go depth 15
-  ```
-
-#### Step 4: Parse Output
-
-* Ambil:
-
-  * Score (cp/mate)
-  * Best move
-
-#### Step 5: Render Update
-
-* Update:
-
-  * Evaluation bar
-  * Arrow overlay
+   * evaluation bar
+   * arrow overlay
 
 ---
 
-## UI Layout
+## System Architecture
 
-```
-+--------------------------------------------------+
-|                                                  |
-|   [ CHESS BOARD FRAME ]   [ EVAL BAR ]            |
-|                                                  |
-|                                                  |
-|                                                  |
-|                          [Start Analyze Button]   |
-+--------------------------------------------------+
-```
+* UI Layer → overlay + render
+* Core → state & control
+* Vision → capture + detection
+* Engine → Stockfish interface
 
 ---
 
-## Evaluation Bar Logic
-
-* Range evaluasi:
-
-  ```
-  -10.0 (hitam menang) → +10.0 (putih menang)
-  ```
-
-* Normalisasi:
-
-  ```
-  normalized = (eval + 10) / 20
-  ```
-
-* Rendering:
-
-  * Atas: putih
-  * Bawah: hitam
-  * Tengah: seimbang
-
----
-
-## Arrow Rendering
-
-### Input:
-
-* Best move (contoh: e2e4)
-
-### Konversi:
-
-* Board → pixel mapping:
-
-  ```
-  cell_width  = width / 8
-  cell_height = height / 8
-  ```
-
-### Output:
-
-* Gambar panah:
-
-  * Start: tengah kotak asal
-  * End: tengah kotak tujuan
-
----
-
-## Threading Model
-
-### Thread 1: UI Thread
-
-* Rendering overlay
-* Input handling
-
-### Thread 2: Vision Thread
-
-* Screen capture
-* Board recognition
-
-### Thread 3: Engine Thread
-
-* Komunikasi Stockfish
-* Parsing output
-
----
-
-## Engine Communication (UCI)
-
-### Init:
-
-```
-uci
-isready
-ucinewgame
-```
-
-### Analisis:
-
-```
-position fen <FEN>
-go depth 15
-```
-
-### Output:
-
-```
-info depth 15 score cp 34 pv e2e4
-bestmove e2e4
-```
-
----
-
-## Project Structure (Suggested)
+## Project Structure
 
 ```
 /project-root
@@ -288,91 +91,169 @@ bestmove e2e4
 │   ├── vision/
 │   └── utils/
 │
-├── /assets
-│
-├── /models (optional for CV)
-│
+├── CMakeLists.txt
 └── README.md
 ```
 
 ---
 
-## Technology Stack (Recommended)
+## Build Instructions
 
-### Core
+### Requirements
 
-* C++ (performance critical)
-
-### UI
-
-* WinAPI / Qt
-
-### Vision
-
+* C++17+
+* CMake
+* vcpkg
 * OpenCV
-
-### Engine
-
-* Stockfish (bundled binary)
 
 ---
 
-## Performance Considerations
+### Setup vcpkg
 
-### Latency
+```
+git clone https://github.com/microsoft/vcpkg
+cd vcpkg
+bootstrap-vcpkg.bat
+```
+
+Install dependencies:
+
+```
+vcpkg install opencv:x64-windows
+```
+
+---
+
+### Build Project
+
+```
+mkdir build
+cd build
+
+cmake .. -DCMAKE_TOOLCHAIN_FILE=[path_to_vcpkg]/scripts/buildsystems/vcpkg.cmake
+cmake --build . --config Release
+```
+
+---
+
+## Running
+
+Setelah build:
+
+```
+/bin/app.exe
+```
+
+Engine akan otomatis dijalankan dari:
+
+```
+/bin/stockfish.exe
+```
+
+---
+
+## Engine Integration
+
+Menggunakan UCI protocol:
+
+Init:
+
+```
+uci
+isready
+ucinewgame
+```
+
+Analyze:
+
+```
+position fen <FEN>
+go depth 15
+```
+
+Output:
+
+```
+bestmove e2e4
+```
+
+---
+
+## Evaluation Logic
+
+Range:
+
+```
+-10 → +10
+```
+
+Normalisasi:
+
+```
+normalized = (eval + 10) / 20
+```
+
+---
+
+## Rendering Logic
+
+### Arrow
+
+* Mapping 8x8 grid → pixel
+* Draw line + arrow head
+
+### Eval Bar
+
+* Vertical bar
+* White (atas), Black (bawah)
+
+---
+
+## Threading
+
+* UI Thread
+* Vision Thread
+* Engine Thread
+
+Gunakan queue untuk sinkronisasi.
+
+---
+
+## Performance Notes
 
 * Gunakan ROI capture (bukan full screen)
-* Batasi FPS (10–20 cukup)
-
-### Engine Load
-
-* Gunakan delay:
-
-  * 200–500 ms per analisis
-
-### Rendering
-
-* Gunakan double buffering
-* Hindari redraw berlebihan
+* Limit FPS: 10–20
+* Delay engine: 200–500 ms
 
 ---
 
 ## Packaging
 
-### Goal:
-
-Single executable distribution
-
-### Include:
+Distribusi:
 
 * app.exe
-* stockfish.exe (embedded / bundled)
+* stockfish.exe
 
-### Behavior:
-
-* Engine dijalankan otomatis oleh aplikasi
-* Tidak perlu install tambahan
+Tanpa dependency eksternal.
 
 ---
 
 ## Future Improvements
 
-* Multi-line analysis (Top 3 moves)
-* Heatmap square
-* Auto-detect chessboard
-* GPU acceleration (vision)
+* Multi PV
+* Auto board detection
+* GPU acceleration
+* Highlight squares
 
 ---
 
 ## Summary
 
-Aplikasi ini adalah sistem terintegrasi yang:
+Aplikasi ini:
 
-* Menggunakan overlay untuk menentukan area papan
-* Melakukan computer vision untuk membaca posisi
-* Menggunakan engine untuk analisis
-* Menampilkan hasil secara visual real-time
+* Mengambil input visual dari layar
+* Mengubah ke data catur (FEN)
+* Menganalisis dengan engine
+* Menampilkan hasil secara real-time
 
-Semua berjalan dalam satu aplikasi tanpa intervensi user selain setup awal area.
-
----
+Semua dalam satu executable.

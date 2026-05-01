@@ -51,17 +51,20 @@ def build_templates(img):
     with open(MAPPING_PATH, "r") as f:
         mapping = json.load(f)
 
-    templates_dict = {}
+    # Load cache lama agar saat edit sepotong-sepotong template lama tidak hilang tereset
+    templates_dict = load_templates()
+    if templates_dict is None:
+        templates_dict = {}
 
     for i in range(64):
         label = mapping[i]
-        if label != ".":
+        if label != "." and label != "E":
             r, c = i // 8, i % 8
             cell = get_cell(img, r, c)
             gray_std = preprocess(cell)
             
-            # SIMPAN HURUF ASLI! (P untuk putih, p untuk hitam tidak akan saling tindih)
-            if label not in templates_dict:
+            # Hanya simpan atau timpa(overwrite) jika bidak itu di atas kotak yang TIDAK KOSONG
+            if not is_empty(gray_std):
                 templates_dict[label] = gray_std
                 cv2.imwrite(os.path.join(DEBUG_DIR, f"{label}.png"), gray_std)
 

@@ -110,26 +110,39 @@ void onMouse(int event, int x, int y, int flags, void* userdata) {
                 for (int i = 0; i < data->grid.size(); i++) {
                     const auto& sq = data->grid[i];
                     if (sq.area.contains(cv::Point(x, y))) {
-                        // Cegah seleksi berulang di kotak yang sama
-                        if (data->selectedCells[i]) return;
-                        
                         int idx = data->activePieceIndex;
                         
-                        // Cek apakah sudah mencapai batas maksimal seleksi untuk bidak ini
-                        if (data->selectionCounts[idx] >= data->maxLimits[idx]) return;
-                        
-                        data->selectionCounts[idx]++; // Tambah hitungan
+                        std::string oldLabel = data->cellLabels[i];
+                        int oldIdx = -1;
+                        for (size_t k = 0; k < data->pieceKeys.size(); k++) {
+                            if (data->pieceKeys[k] == oldLabel) { oldIdx = (int)k; break; }
+                        }
 
-                        cv::Mat cellImg = data->boardImage(sq.area);
+                        // Jika klik kotak yang sama dengan bidak yang sama -> BATALKAN (Deselect/Hapus)
+                        if (data->selectedCells[i] && oldIdx == idx) {
+                            data->selectionCounts[idx]--;
+                            data->selectedCells[i] = false;
+                            data->cellLabels[i] = "E";
+                            data->needsRedraw = true;
+                            return;
+                        }
+
+                        // Cek apakah kuota maksimal seleksi bidak baru sudah penuh
+                        if (data->selectionCounts[idx] >= data->maxLimits[idx]) {
+                            return; 
+                        }
                         
-                        // Tandai bahwa cell ini sudah pernah di-select
+                        // Jika mengganti bidak lama ke bidak baru, kurangi hitungan bidak lama
+                        if (data->selectedCells[i] && oldIdx != -1) {
+                            data->selectionCounts[oldIdx]--;
+                        }
+
+                        data->selectionCounts[idx]++; // Tambah hitungan
+                        
                         data->selectedCells[i] = true;
-                        data->cellLabels[i] = data->pieceKeys[idx]; // TAMBAHAN: Rekam label bidak untuk kotak ini
-                        
+                        data->cellLabels[i] = data->pieceKeys[idx]; // Rekam label bidak
 
                         // Efek visual sementara (lingkaran merah)
-                        cv::Point center(sq.area.x + sq.area.width/2, sq.area.y + sq.area.height/2);
-                        int radius = std::min(sq.area.width, sq.area.height) / 2;
                         cv::rectangle(data->dialogImg, sq.area, cv::Scalar(0, 0, 255, 255), 2);
                         cv::imshow("Screenshot Area Grid", data->dialogImg);
                         cv::waitKey(50); // Tahan sebentar
@@ -236,6 +249,35 @@ int main() {
                 cbData.maxLimits = {8, 2, 2, 2, 1, 1, 8, 2, 2, 2, 1, 1, 64}; // Batas seleksi per-bidak
                 cbData.selectionCounts.assign(13, 0); // Jumlah seleksi dimulai dari 0
 
+                // === TAMBAHAN: Muat ulang template_mapping.json jika sebelumnya sudah tersimpan ===
+                std::ifstream mapFileIn("template_mapping.json");
+                if (mapFileIn.is_open()) {
+                    std::string line;
+                    int cellIdx = 0;
+                    while (std::getline(mapFileIn, line) && cellIdx < 64) {
+                        size_t firstQuote = line.find('"');
+                        if (firstQuote != std::string::npos) {
+                            size_t secondQuote = line.find('"', firstQuote + 1);
+                            if (secondQuote != std::string::npos) {
+                                std::string label = line.substr(firstQuote + 1, secondQuote - firstQuote - 1);
+                                cbData.cellLabels[cellIdx] = label;
+                                if (label != "E") {
+                                    cbData.selectedCells[cellIdx] = true;
+                                    for (size_t k = 0; k < cbData.pieceKeys.size(); k++) {
+                                        if (cbData.pieceKeys[k] == label) {
+                                            if (cbData.selectionCounts[k] < cbData.maxLimits[k]) cbData.selectionCounts[k]++;
+                                            break;
+                                        }
+                                    }
+                                }
+                                cellIdx++;
+                            }
+                        }
+                    }
+                    mapFileIn.close();
+                }
+                // ==============================================================================
+
                 int startX = width + 10;
                 int startY = 10;
                 int bottomAreaHeight = 90; // Sediakan ruang untuk 4 tombol khusus di bawah
@@ -284,13 +326,24 @@ int main() {
                         cv::Mat leftROI = cbData.dialogImg(cv::Rect(0, 0, width, height));
                         boardImage.copyTo(leftROI);
                         
-                        // 3. Highlight sel yang sudah dipilih (Lingkaran Oranye)
+                        // 3. Highlight sel yang sudah dipilih dan tampilkan huruf bidaknya
                         for (int i = 0; i < grid.size(); i++) {
                             const auto& sq = grid[i];
                             if (cbData.selectedCells[i]) {
-                                cv::Point center(sq.area.x + sq.area.width/2, sq.area.y + sq.area.height/2);
-                                int radius = std::min(sq.area.width, sq.area.height) / 2;
                                 cv::rectangle(cbData.dialogImg, sq.area, cv::Scalar(0, 165, 255, 255), 3);
+                                
+                                std::string label = cbData.cellLabels[i];
+                                if (label != "E") {
+                                    int fontFace = cv::FONT_HERSHEY_SIMPLEX;
+                                    double fontScale = 0.8;
+                                    int thickness = 2;
+                                    int baseline = 0;
+                                    cv::Size textSize = cv::getTextSize(label, fontFace, fontScale, thickness, &baseline);
+                                    cv::Point textOrg(sq.area.x + (sq.area.width - textSize.width) / 2, sq.area.y + (sq.area.height + textSize.height) / 2);
+                                    
+                                    cv::putText(cbData.dialogImg, label, textOrg, fontFace, fontScale, cv::Scalar(0, 0, 0, 255), thickness + 2); // Outline Hitam
+                                    cv::putText(cbData.dialogImg, label, textOrg, fontFace, fontScale, cv::Scalar(0, 255, 0, 255), thickness); // Teks Hijau
+                                }
                             }
                         }
 
@@ -365,6 +418,9 @@ int main() {
                 
                 // Tutup popup secara aman, abaikan jika jendela sudah terlanjur hancur
                 try { cv::destroyWindow("Screenshot Area Grid"); } catch (...) {}
+
+                // TAMBAHAN: Simpan juga gambar papan terbaru untuk diproses ekstraksi oleh Python
+                cv::imwrite("frame.png", boardImage);
 
                 // TAMBAHAN: Tulis pemetaan template ke JSON untuk dibaca Python
                 std::ofstream mapFile("template_mapping.json");

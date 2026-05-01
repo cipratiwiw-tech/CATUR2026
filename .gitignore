@@ -48,6 +48,7 @@ venv/
 # =========================
 .DS_Store
 Thumbs.db
+*.pt
 
 # =========================
 # OPTIONAL: templates (kalau mau tetap disimpan, HAPUS ini)
